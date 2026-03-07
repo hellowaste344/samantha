@@ -1,0 +1,64 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Samantha v2 — Python requirements
+#  Key change: openai-whisper → faster-whisper (4× faster, lower VRAM)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Core ──────────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+rich>=13.0.0
+
+# ── LLM — Ollama HTTP client ──────────────────────────────────────────────────
+httpx>=0.27.0
+
+# ── STT — faster-whisper (replaces openai-whisper) ────────────────────────────
+# CTranslate2-based engine — 4× faster, same accuracy, lower VRAM.
+# Model weights are shared with openai-whisper (auto-downloaded on first run).
+# Requires: pip install faster-whisper
+faster-whisper>=1.0.0
+
+# Audio decoding for faster-whisper (needed when reading WAV/MP3 files)
+# Not needed in rust_bridge mode (audio arrives as raw float32 numpy array).
+soundfile>=0.12.1
+
+# ── Audio capture — Python fallback mode only ─────────────────────────────────
+# In rust_bridge mode (default), the Rust engine handles capture.
+# sounddevice is only used when STT_MODE=voice (pure-Python fallback).
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# ── TTS — edge-tts (neural, 300+ voices, no system deps) ─────────────────────
+edge-tts>=6.1.9
+
+# ── TTS audio playback ────────────────────────────────────────────────────────
+pydub>=0.25.1      # primary playback (needs ffmpeg at system level)
+# sounddevice above doubles as playback backend
+
+# ── TTS — piper-tts (OFFLINE fallback, needs espeak-ng) ──────────────────────
+# Uncomment to enable:
+# piper-tts>=1.2.0
+
+# ── pyttsx3 — last-resort fallback ───────────────────────────────────────────
+pyttsx3>=2.90
+
+# ── Browser automation ────────────────────────────────────────────────────────
+playwright>=1.44.0
+# After install: python -m playwright install chromium
+
+# ── OS automation ─────────────────────────────────────────────────────────────
+pyautogui>=0.9.54
+pyperclip>=1.8.2
+
+# ── Knowledge tools ───────────────────────────────────────────────────────────
+wikipedia>=1.4.0
+
+# ── Local API bridge (dashboard WebSocket + REST) ─────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+
+# ── Email (read/summarize) — future Gmail API integration ────────────────────
+# Uncomment when adding Gmail read support:
+# google-auth>=2.29.0
+# google-auth-oauthlib>=1.2.0
+# google-api-python-client>=2.127.0

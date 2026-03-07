@@ -1,0 +1,185 @@
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { Eye, MousePointer, Settings, X, Zap, FolderOpen } from "lucide-react";
+
+/**
+ * LaunchPopup — 420×300 centered dark window.
+ *
+ * Sketch layout:
+ *   [Z actions btn]   [ Hi! I'm Samantha  ]
+ *                     [    ○ waveform ○    ]
+ *                     [     [launch]       ]
+ *
+ * Click Launch → card slides right → overlay bar snaps to right edge → popup hides.
+ * The key fix: invoke("launch_overlay") is called immediately; CSS animation is
+ * purely cosmetic and runs in parallel — no 380ms blocking delay.
+ */
+export function LaunchPopup() {
+  const [phase, setPhase]              = useState<"idle" | "animating" | "done">("idle");
+  const [showActions, setShowActions]  = useState(false);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [pulse, setPulse]              = useState(false);
+
+  // Heartbeat pulse for wave ring
+  useEffect(() => {
+    const id = setInterval(() => setPulse(v => !v), 1800);
+    return () => clearInterval(id);
+  }, []);
+
+  // Close actions panel when clicking outside
+  useEffect(() => {
+    if (!showActions) return;
+    const handler = () => setShowActions(false);
+    window.addEventListener("click", handler, { capture: true, once: true });
+    return () => window.removeEventListener("click", handler, { capture: true });
+  }, [showActions]);
+
+  // ── Launch handler ─────────────────────────────────────────────────────────
+  const handleLaunch = async () => {
+    if (phase !== "idle") return;
+    setShowActions(false);
+    setPhase("animating");
+
+    // Invoke Rust immediately — it shows the overlay AND hides the launch window.
+    // The CSS animation is purely cosmetic (runs in parallel).
+    try {
+      await invoke("launch_overlay");
+      // If we're still mounted (edge case: invoke resolved but window not hidden yet)
+      setPhase("done");
+    } catch (err) {
+      console.error("[LaunchPopup] launch_overlay failed:", err);
+      setPhase("idle");
+    }
+  };
+
+  // ── Action helpers ─────────────────────────────────────────────────────────
+  const showHint = (msg: string) => {
+    setShowActions(false);
+    setActionStatus(msg);
+    setTimeout(() => setActionStatus(null), 2500);
+  };
+
+  const openSettings = async () => {
+    setShowActions(false);
+    setActionStatus("Opening settings…");
+    try {
+      await invoke("open_settings");
+      setTimeout(() => setActionStatus(null), 1200);
+    } catch {
+      setActionStatus("Start the agent first");
+      setTimeout(() => setActionStatus(null), 2000);
+    }
+  };
+
+  const openConfigFolder = async () => {
+    setShowActions(false);
+    try {
+      await invoke("open_config_folder");
+    } catch {
+      showHint("Could not open config folder");
+    }
+  };
+
+  const isLaunching = phase === "animating" || phase === "done";
+
+  return (
+    <div className="lp-root" data-tauri-drag-region>
+
+      {/* ── Close button ─────────────────────────────────────────────── */}
+      <button
+        className="lp-close"
+        onClick={() => invoke("close_launch")}
+        aria-label="Close"
+      >
+        <X size={11} />
+      </button>
+
+      {/* ── Actions "Z" button ───────────────────────────────────────── */}
+      <div className="lp-actions-wrap">
+        <button
+          className={`lp-z-btn${showActions ? " lp-z-btn--open" : ""}`}
+          onClick={(e) => { e.stopPropagation(); setShowActions(v => !v); }}
+          aria-label="Actions"
+          aria-expanded={showActions}
+          disabled={isLaunching}
+        >
+          <span className="lp-z-letter">Z</span>
+        </button>
+        <span className="lp-z-label">actions</span>
+
+        {/* Actions flyout */}
+        {showActions && (
+          <div className="lp-actions-panel" role="menu" onClick={e => e.stopPropagation()}>
+            <p className="lp-actions-heading">Actions</p>
+
+            <button className="lp-action-row" role="menuitem"
+              onClick={() => showHint("Vision available after agent starts")}>
+              <Eye size={13} />
+              Screen Vision
+            </button>
+
+            <button className="lp-action-row" role="menuitem"
+              onClick={() => showHint("Type/Click available after agent starts")}>
+              <MousePointer size={13} />
+              Type / Click
+            </button>
+
+            <button className="lp-action-row" role="menuitem"
+              onClick={() => showHint("Automations available after agent starts")}>
+              <Zap size={13} />
+              Automations
+            </button>
+
+            <button className="lp-action-row" role="menuitem" onClick={openSettings}>
+              <Settings size={13} />
+              Settings
+            </button>
+
+            <button className="lp-action-row" role="menuitem" onClick={openConfigFolder}>
+              <FolderOpen size={13} />
+              Config Folder
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Center card ──────────────────────────────────────────────── */}
+      <div className={`lp-card${isLaunching ? " lp-card--launch" : ""}`}>
+
+        <p className="lp-greeting">Hi! I'm Samantha</p>
+
+        {/* Waveform ring */}
+        <div className={`lp-wave-ring${pulse ? " lp-wave-ring--pulse" : ""}`} aria-hidden>
+          <div className="lp-wave-circle">
+            {[0.4, 0.7, 1.0, 0.85, 1.0, 0.7, 0.4].map((h, i) => (
+              <span
+                key={i}
+                className="lp-wave-bar"
+                style={{ animationDelay: `${i * 0.12}s`, height: `${h * 26}px` }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Status hint */}
+        {actionStatus && (
+          <p className="lp-status-hint">{actionStatus}</p>
+        )}
+
+        {/* Launch pill */}
+        <button
+          className={`lp-launch-btn${isLaunching ? " lp-launch-btn--busy" : ""}`}
+          onClick={handleLaunch}
+          disabled={isLaunching}
+        >
+          {isLaunching
+            ? <><span className="lp-spinner" /> Launching…</>
+            : "launch"}
+        </button>
+      </div>
+
+      {/* Watermark */}
+      <p className="lp-watermark">ZenonAI · Samantha</p>
+    </div>
+  );
+}

@@ -1,0 +1,60 @@
+# /etc/systemd/user/samantha.service
+#
+# Samantha AI — User systemd service
+# Starts on login, restarts on crash.
+#
+# Install:
+#   cp packaging/samantha.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now samantha
+#
+# Logs:
+#   journalctl --user -u samantha -f
+
+[Unit]
+Description=Samantha AI Voice Assistant
+Documentation=https://zenonai.net
+After=network.target graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/samantha
+
+# ── Start Rust audio engine first, then Python agent ─────────────────────────
+ExecStartPre=/bin/bash -c 'killall samantha-audio 2>/dev/null; true'
+ExecStartPre=%h/samantha/bin/samantha-audio \
+    --socket /tmp/samantha_audio.sock \
+    --sample-rate 16000 \
+    --vad-level 2 \
+    --silence-ms 800 &
+
+ExecStart=%h/samantha/.venv/bin/python \
+    %h/samantha/agent/main.py \
+    --daemon
+
+ExecStopPost=/bin/bash -c 'killall samantha-audio 2>/dev/null; true'
+
+# ── Environment ───────────────────────────────────────────────────────────────
+EnvironmentFile=-%h/samantha/agent/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=RUST_LOG=samantha_audio=info
+
+# ── Restart policy ────────────────────────────────────────────────────────────
+Restart=on-failure
+RestartSec=3s
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# ── Resource limits ───────────────────────────────────────────────────────────
+# Whisper small model uses ~500 MB RAM; leave headroom for Ollama.
+MemoryMax=2G
+CPUQuota=80%
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=samantha
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,40 @@
+{
+  "name": "zenonai-desktop",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Samantha — Local AI Voice Assistant by ZenonAI",
+  "author": "ZenonAI <contact@zenonai.net>",
+  "type": "module",
+  "scripts": {
+    "dev":        "vite",
+    "build":      "tsc && vite build",
+    "preview":    "vite preview",
+    "tauri":      "tauri",
+    "tauri:dev":  "tauri dev",
+    "tauri:build":"tauri build",
+    "lint":       "eslint src --ext ts,tsx --report-unused-disable-directives"
+  },
+  "dependencies": {
+    "@tauri-apps/api":              "^2.0.0",
+    "@tauri-apps/plugin-shell":     "^2.0.0",
+    "@tauri-apps/plugin-notification": "^2.0.0",
+    "@tauri-apps/plugin-autostart": "^2.0.0",
+    "@tauri-apps/plugin-store":     "^2.0.0",
+    "react":                        "^18.3.1",
+    "react-dom":                    "^18.3.1",
+    "zustand":                      "^4.5.2",
+    "clsx":                         "^2.1.1",
+    "lucide-react":                 "^0.408.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli":              "^2.0.0",
+    "@types/react":                 "^18.3.3",
+    "@types/react-dom":             "^18.3.0",
+    "@vitejs/plugin-react":         "^4.3.1",
+    "autoprefixer":                 "^10.4.19",
+    "postcss":                      "^8.4.39",
+    "tailwindcss":                  "^3.4.6",
+    "typescript":                   "^5.5.3",
+    "vite":                         "^5.3.4"
+  }
+}

@@ -1,0 +1,43 @@
+[package]
+name        = "samantha-audio"
+version     = "0.1.0"
+edition     = "2021"
+description = "Low-latency audio capture, VAD, and IPC bridge for Samantha AI"
+license     = "MIT"
+
+[[bin]]
+name = "samantha-audio"
+path = "src/main.rs"
+
+[dependencies]
+# Audio capture — cross-platform (ALSA on Linux, CoreAudio on macOS, WASAPI on Win)
+cpal         = { version = "0.15", features = ["jack"] }
+
+# WebRTC VAD — battle-tested C library with Rust bindings
+webrtc-vad   = "0.4"
+
+# Async runtime
+tokio        = { version = "1", features = ["full"] }
+
+# Serialisation for IPC messages
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+
+# Base64 encoding of raw PCM for JSON transport
+base64       = "0.22"
+
+# Error handling
+anyhow       = "1"
+
+# Structured logging
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI flags
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level   = 3
+lto         = "thin"
+codegen-units = 1
+strip       = "symbols"
