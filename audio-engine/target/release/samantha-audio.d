@@ -1,0 +1,1 @@
+/home/Xashe/Downloads/self_agent/new/zenonai/audio-engine/target/release/samantha-audio: /home/Xashe/Downloads/self_agent/new/zenonai/audio-engine/src/capture.rs /home/Xashe/Downloads/self_agent/new/zenonai/audio-engine/src/ipc.rs /home/Xashe/Downloads/self_agent/new/zenonai/audio-engine/src/main.rs /home/Xashe/Downloads/self_agent/new/zenonai/audio-engine/src/vad.rs

@@ -1,136 +1,211 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ZenonAI Samantha — unified Makefile
+# ══════════════════════════════════════════════════════════════════════════════
+#  Samantha — ZenonAI
 #
-#  Three components, one architecture:
-#    audio-engine/   Rust mic daemon  (samantha-audio binary)
-#    agent/          Python AI agent  (FastAPI + Ollama + edge-tts)
-#    desktop/        Tauri desktop    (React + Rust shell)
+#  Components
+#    audio-engine/   Rust mic daemon   (samantha-audio)
+#    agent/          Python AI backend (Ollama + Whisper + FastAPI)
+#    desktop/        Tauri frontend    (React + Rust shell)
 #
-#  Connection flow:
-#    Tauri desktop  →  invoke("start_backend")  →  spawns Python sidecar
-#    Python agent   →  http://127.0.0.1:7799    →  REST + WebSocket
-#    Tauri frontend →  ws://127.0.0.1:7799/ws/events  (state + transcript)
-#    Tauri overlay  →  POST /api/chat           (typed messages)
-#    Python agent   →  /tmp/samantha_audio.sock (Rust IPC, rust_bridge mode)
-# ═══════════════════════════════════════════════════════════════════════════════
+#  Flow
+#    mic → [Rust VAD] → unix socket → [Python agent] → [Ollama LLM]
+#                                            ↕ WebSocket :7799
+#                                     [Tauri desktop]
+# ══════════════════════════════════════════════════════════════════════════════
 
-.PHONY: all build build-rust build-python build-desktop \
-        run run-text run-voice run-daemon \
-        install install-service \
-        test-planner clean help
+ROOT        := $(shell pwd)
+AGENT_DIR   := $(ROOT)/agent
+AUDIO_DIR   := $(ROOT)/audio-engine
+DESKTOP_DIR := $(ROOT)/desktop
+VENV        := $(AGENT_DIR)/.venv
+PYTHON      := $(VENV)/bin/python
+PIP         := $(VENV)/bin/pip
+AUDIO_BIN   := $(AUDIO_DIR)/target/release/samantha-audio
+SOCKET      := /tmp/samantha_audio.sock
 
-AUDIO_BIN  := audio-engine/target/release/samantha-audio
-PYTHON      := python3
-PIP         := pip3
-AGENT_DIR   := agent
+CARGO_BIN   := $(HOME)/.cargo/bin/cargo
+CARGO       := $(shell command -v cargo 2>/dev/null || echo $(CARGO_BIN))
 
-# ── Build ─────────────────────────────────────────────────────────────────────
+PYTHON3     := $(shell \
+  for c in python3.13 python3.12 python3.11 python3; do \
+    b=$$(command -v $$c 2>/dev/null); \
+    if [ -n "$$b" ] && $$b -c "import sys; exit(0 if sys.version_info>=(3,11) else 1)" 2>/dev/null; \
+    then echo $$b; break; fi; done)
 
-all: build
+UNAME := $(shell uname -s)
+ifeq ($(UNAME), Darwin)
+  OS_TYPE := macos
+else
+  OS_TYPE := linux
+endif
 
-build: build-rust build-python
-	@echo ""
-	@echo "✅  All components built."
-	@echo "    Run:  make run-text    (no mic, no Rust — quickest start)"
-	@echo "    Run:  make run-voice   (Python mic, no Rust)"
-	@echo "    Run:  make run         (full: Rust mic engine + Python agent)"
+BOLD   := \033[1m
+GREEN  := \033[0;32m
+CYAN   := \033[0;36m
+YELLOW := \033[0;33m
+RESET  := \033[0m
 
-build-rust:
-	@echo "🦀  Building Rust audio engine…"
-	@if ! command -v cargo > /dev/null 2>&1; then \
-		echo ""; \
-		echo "  ✗  cargo not found.  Install Rust first:"; \
-		echo "     curl https://sh.rustup.rs -sSf | sh"; \
-		echo "     source \$$HOME/.cargo/env"; \
-		echo ""; \
-		echo "  Arch Linux:    sudo pacman -S rust"; \
-		echo "  Debian/Ubuntu: sudo apt install cargo"; \
-		exit 1; \
-	fi
-	@echo "  cargo: $$(cargo --version)"
-	@echo "  rustc: $$(rustc --version)"
-	cd audio-engine && cargo build --release
+.DEFAULT_GOAL := help
+.PHONY: help install run backend platform clean \
+        _venv _audio _ollama _env
 
-build-python:
-	@echo "🐍  Installing Python dependencies…"
-	$(PIP) install --upgrade pip --quiet
-	$(PIP) install -r $(AGENT_DIR)/requirements.txt --quiet
-	@echo "✓  Python deps installed."
-
-build-desktop:
-	@echo "🖥  Building Tauri desktop…"
-	@if ! command -v node > /dev/null 2>&1; then \
-		echo "  ✗  node not found. Install Node.js >= 18 first."; exit 1; \
-	fi
-	@if ! command -v cargo > /dev/null 2>&1; then \
-		echo "  ✗  cargo not found. Install Rust first."; exit 1; \
-	fi
-	cd desktop && npm install && npm run tauri:build
-
-# ── Run ───────────────────────────────────────────────────────────────────────
-
-run: build-rust
-	@echo "🚀  Starting Samantha (Rust engine + Python agent)…"
-	@echo "    Socket: /tmp/samantha_audio.sock"
-	$(AUDIO_BIN) &
-	sleep 1
-	cd $(AGENT_DIR) && $(PYTHON) main.py
-
-run-voice:
-	@echo "🚀  Starting Samantha (Python voice, no Rust)…"
-	cd $(AGENT_DIR) && STT_MODE=voice $(PYTHON) main.py --voice
-
-run-text:
-	@echo "🚀  Starting Samantha (text/keyboard mode — no mic)…"
-	cd $(AGENT_DIR) && STT_MODE=text $(PYTHON) main.py --text
-
-run-daemon:
-	@echo "🚀  Starting Samantha daemon (headless, for Tauri sidecar)…"
-	cd $(AGENT_DIR) && $(PYTHON) main.py --daemon
-
-# ── Test ──────────────────────────────────────────────────────────────────────
-
-test-planner:
-	@echo "🧪  Smoke-testing Ollama planner…"
-	cd $(AGENT_DIR) && $(PYTHON) main.py --test
-
-# ── Install (systemd) ─────────────────────────────────────────────────────────
-
-install: build-rust
-	@echo "📦  Installing samantha-audio to /usr/local/bin…"
-	sudo install -m 755 $(AUDIO_BIN) /usr/local/bin/samantha-audio
-	@echo "✓  Audio engine installed."
-
-install-service: install
-	@echo "🔧  Installing systemd user service…"
-	mkdir -p ~/.config/systemd/user
-	cp packaging/samantha.service ~/.config/systemd/user/
-	systemctl --user daemon-reload
-	systemctl --user enable samantha-audio
-	systemctl --user start  samantha-audio
-	@echo "✓  samantha-audio service enabled and started."
-	@echo "    Check status:  systemctl --user status samantha-audio"
-
-# ── Clean ─────────────────────────────────────────────────────────────────────
-
-clean:
-	cd audio-engine && cargo clean
-	rm -f $(AGENT_DIR)/memory.db
-	@echo "✓  Cleaned."
-
-# ── Help ──────────────────────────────────────────────────────────────────────
-
+# ══════════════════════════════════════════════════════════════════════════════
+#  HELP
+# ══════════════════════════════════════════════════════════════════════════════
 help:
 	@echo ""
-	@echo "  ZenonAI Samantha — Build System"
+	@echo "$(BOLD)  Samantha — ZenonAI$(RESET)"
 	@echo ""
-	@echo "  make build          Build Rust audio engine + install Python deps"
-	@echo "  make build-desktop  Build Tauri desktop app (needs Node + Rust)"
-	@echo "  make run            Full run: Rust engine + Python agent"
-	@echo "  make run-text       Quickstart: text input, no mic, no Rust"
-	@echo "  make run-voice      Python mic (sounddevice), no Rust"
-	@echo "  make run-daemon     Headless mode (Tauri sidecar)"
-	@echo "  make test-planner   Smoke-test Ollama LLM planner"
-	@echo "  make install        Install samantha-audio to /usr/local/bin"
-	@echo "  make install-service Install + enable systemd service"
+	@echo "  make install      Install all dependencies (Rust, Python, Node, Ollama)"
+	@echo "  make backend      Run the AI agent  (voice + LLM + API server)"
+	@echo "  make platform     Run the desktop UI (Tauri dev mode)"
+	@echo "  make run          Run backend + platform together"
+	@echo "  make clean        Remove build artefacts and venv"
 	@echo ""
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  INSTALL
+# ══════════════════════════════════════════════════════════════════════════════
+install: _sys _cargo _venv _pypackages _audio _ollama _node
+	@echo ""
+	@echo "$(GREEN)$(BOLD)  ✓ Install complete$(RESET)"
+	@echo ""
+	@echo "  cp agent/.env.example agent/.env   # configure once"
+	@echo "  make backend                        # start agent"
+	@echo "  make platform                       # start desktop UI"
+	@echo "  make run                            # start both"
+	@echo ""
+
+_sys:
+	@echo "$(CYAN)▶ System packages…$(RESET)"
+ifeq ($(OS_TYPE), linux)
+	@if command -v pacman >/dev/null 2>&1; then \
+		sudo pacman -Sy --needed --noconfirm \
+			base-devel pkgconf git curl python \
+			alsa-lib portaudio ffmpeg tesseract tesseract-data-eng scrot tk; \
+	elif command -v apt-get >/dev/null 2>&1; then \
+		sudo apt-get update -qq && sudo apt-get install -y \
+			build-essential pkg-config git curl \
+			python3-venv python3-pip python3-dev \
+			libasound2-dev portaudio19-dev ffmpeg \
+			tesseract-ocr tesseract-ocr-eng scrot python3-tk; \
+	fi
+else
+	@brew install pkg-config ffmpeg tesseract python@3.11 || true
+endif
+	@echo "$(GREEN)  ✓ System packages$(RESET)"
+
+_cargo:
+	@if command -v cargo >/dev/null 2>&1 || [ -x "$(CARGO_BIN)" ]; then \
+		echo "$(GREEN)  ✓ Rust $(shell rustc --version 2>/dev/null | cut -d' ' -f2) already installed$(RESET)"; \
+	else \
+		echo "$(CYAN)▶ Installing Rust…$(RESET)"; \
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path; \
+		echo "$(GREEN)  ✓ Rust installed$(RESET)"; \
+	fi
+
+_venv:
+	@if [ -z "$(PYTHON3)" ]; then \
+		echo "$(YELLOW)  ✗ Python 3.11+ not found. Install it then re-run make install.$(RESET)"; exit 1; \
+	fi
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "$(CYAN)▶ Creating Python venv…$(RESET)"; \
+		$(PYTHON3) -m venv $(VENV); \
+		echo "$(GREEN)  ✓ venv at agent/.venv$(RESET)"; \
+	else \
+		echo "$(GREEN)  ✓ venv exists$(RESET)"; \
+	fi
+
+_pypackages: _venv
+	@echo "$(CYAN)▶ Python packages…$(RESET)"
+	@$(PIP) install --upgrade pip setuptools wheel -q
+	@$(PIP) install -r $(AGENT_DIR)/requirements.txt
+	@$(PIP) install paddlepaddle paddleocr 2>/dev/null \
+		&& echo "$(GREEN)  ✓ PaddleOCR$(RESET)" \
+		|| echo "$(YELLOW)  ⚠  PaddleOCR unavailable — Tesseract fallback active$(RESET)"
+	@$(PYTHON) -m playwright install chromium
+	@echo "$(GREEN)  ✓ Python packages$(RESET)"
+
+_audio: _cargo
+	@echo "$(CYAN)▶ Building audio engine…$(RESET)"
+	@cd $(AUDIO_DIR) && $(CARGO) build --release
+	@echo "$(GREEN)  ✓ samantha-audio built$(RESET)"
+
+_ollama:
+	@if command -v ollama >/dev/null 2>&1; then \
+		echo "$(GREEN)  ✓ Ollama already installed$(RESET)"; \
+	else \
+		echo "$(CYAN)▶ Installing Ollama…$(RESET)"; \
+		curl -fsSL https://ollama.com/install.sh | sh; \
+	fi
+	@if ollama list 2>/dev/null | grep -q "llama3.2:3b"; then \
+		echo "$(GREEN)  ✓ llama3.2:3b present$(RESET)"; \
+	else \
+		echo "$(CYAN)▶ Pulling llama3.2:3b…$(RESET)"; \
+		ollama pull llama3.2:3b; \
+	fi
+
+_node:
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "$(YELLOW)  ⚠  Node.js not found — desktop UI won't build.$(RESET)"; \
+		echo "     Install: https://nodejs.org  (v18+)"; \
+	else \
+		echo "$(GREEN)  ✓ Node $(shell node --version) found$(RESET)"; \
+		echo "$(CYAN)▶ npm install (desktop)…$(RESET)"; \
+		cd $(DESKTOP_DIR) && npm install --silent; \
+		echo "$(GREEN)  ✓ desktop deps$(RESET)"; \
+	fi
+
+_env:
+	@if [ ! -f "$(AGENT_DIR)/.env" ]; then \
+		cp $(AGENT_DIR)/.env.example $(AGENT_DIR)/.env; \
+		echo "$(YELLOW)  ⚠  Created agent/.env from example — edit before running$(RESET)"; \
+	fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  BACKEND  (Rust audio daemon + Python agent)
+# ══════════════════════════════════════════════════════════════════════════════
+backend: _env
+	@echo "$(CYAN)▶ Starting backend…$(RESET)"
+	@if [ -f "$(AUDIO_BIN)" ]; then \
+		if ! pgrep -x samantha-audio >/dev/null 2>&1; then \
+			$(AUDIO_BIN) --socket $(SOCKET) --sample-rate 16000 \
+				>/tmp/samantha-audio.log 2>&1 & \
+			sleep 1; \
+			echo "$(GREEN)  ✓ samantha-audio started$(RESET)"; \
+		else \
+			echo "$(GREEN)  ✓ samantha-audio already running$(RESET)"; \
+		fi; \
+	else \
+		echo "$(YELLOW)  ⚠  Audio engine not built — voice via Python$(RESET)"; \
+	fi
+	@cd $(AGENT_DIR) && $(PYTHON) main.py
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PLATFORM  (Tauri desktop — dev mode)
+# ══════════════════════════════════════════════════════════════════════════════
+platform:
+	@echo "$(CYAN)▶ Starting desktop UI (Tauri dev)…$(RESET)"
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "$(YELLOW)  ✗ Node.js not found. Install v18+ from nodejs.org$(RESET)"; exit 1; \
+	fi
+	@cd $(DESKTOP_DIR) && npm run tauri:dev
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  RUN  (backend + platform in parallel)
+# ══════════════════════════════════════════════════════════════════════════════
+run: _env
+	@echo "$(CYAN)▶ Starting backend + desktop…$(RESET)"
+	@$(MAKE) backend &
+	@sleep 2
+	@$(MAKE) platform
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CLEAN
+# ══════════════════════════════════════════════════════════════════════════════
+clean:
+	@echo "$(CYAN)▶ Cleaning…$(RESET)"
+	@cd $(AUDIO_DIR) && $(CARGO) clean 2>/dev/null || true
+	@rm -rf $(VENV)
+	@rm -rf $(DESKTOP_DIR)/node_modules $(DESKTOP_DIR)/dist
+	@rm -f $(AGENT_DIR)/memory.db /tmp/samantha-audio.log
+	@echo "$(GREEN)  ✓ Clean$(RESET)"

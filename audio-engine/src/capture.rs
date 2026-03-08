@@ -1,21 +1,22 @@
-// audio-engine/src/capture.rs  ─  cpal 0.15.3
+// audio-engine/src/capture.rs  —  cpal mic capture → 20 ms f32 frames
 //
-// Mic capture → 20 ms Vec<f32> frames → VAD thread.
-//
-// ── cpal 0.15.3 API (confirmed by the compiler) ───────────────────────────────
-//   Import : use cpal::FromSample;      ← trait must be in scope
-//   Method : f32::from_sample(s)        ← no trailing underscore
-//
-// Three concrete per-format stream builders avoid any generic trait-bound
-// ambiguity across cpal patch versions. Each callback calls from_sample()
-// on its concrete input type with FromSample imported at the top of the file.
+// Conversion uses plain arithmetic instead of cpal sample-conversion traits,
+// which changed API between cpal minor versions and caused build failures.
+//   i16 → f32:  s / i16::MAX          range [-1.0, 1.0]
+//   u16 → f32:  (s / u16::MAX)*2 - 1  range [-1.0, 1.0]
+//   f32 → f32:  direct copy
 
 use anyhow::{bail, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SampleRate, StreamConfig};
+use cpal::{SampleFormat, SampleRate, StreamConfig};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
+
+#[inline]
+fn i16_to_f32(s: i16) -> f32 { s as f32 / i16::MAX as f32 }
+#[inline]
+fn u16_to_f32(s: u16) -> f32 { (s as f32 / u16::MAX as f32) * 2.0 - 1.0 }
 
 /// 20 ms @ 16 kHz = 320 samples  (WebRTC VAD hard requirement)
 const FRAME_SAMPLES: usize = 320;
@@ -73,10 +74,6 @@ pub fn run(target_rate: u32, tx: Sender<Vec<f32>>) -> Result<()> {
     }
 }
 
-// ── Per-format stream builders ────────────────────────────────────────────────
-// Separate concrete functions keep the trait bound simple:
-//   cpal::FromSample is imported above; from_sample() resolves unambiguously.
-
 fn build_f32_stream(
     device: &cpal::Device,
     config: &StreamConfig,
@@ -85,7 +82,7 @@ fn build_f32_stream(
     Ok(device.build_input_stream(
         config,
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            buf.lock().unwrap().extend_from_slice(data); // f32→f32: direct copy
+            buf.lock().unwrap().extend_from_slice(data);
         },
         move |err| warn!("Audio stream error: {err}"),
         None,
@@ -100,8 +97,7 @@ fn build_i16_stream(
     Ok(device.build_input_stream(
         config,
         move |data: &[i16], _: &cpal::InputCallbackInfo| {
-            // cpal 0.15.3: trait=cpal::FromSample, method=from_sample (no underscore)
-            let samples: Vec<f32> = data.iter().map(|&s| f32::from_sample(s)).collect();
+            let samples: Vec<f32> = data.iter().map(|&s| i16_to_f32(s)).collect();
             buf.lock().unwrap().extend_from_slice(&samples);
         },
         move |err| warn!("Audio stream error: {err}"),
@@ -117,7 +113,7 @@ fn build_u16_stream(
     Ok(device.build_input_stream(
         config,
         move |data: &[u16], _: &cpal::InputCallbackInfo| {
-            let samples: Vec<f32> = data.iter().map(|&s| f32::from_sample(s)).collect();
+            let samples: Vec<f32> = data.iter().map(|&s| u16_to_f32(s)).collect();
             buf.lock().unwrap().extend_from_slice(&samples);
         },
         move |err| warn!("Audio stream error: {err}"),

@@ -1,6 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Samantha v2 — Python requirements
-#  Key change: openai-whisper → faster-whisper (4× faster, lower VRAM)
+#  Samantha — Python requirements
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Core ──────────────────────────────────────────────────────────────────────
@@ -11,35 +10,53 @@ rich>=13.0.0
 # ── LLM — Ollama HTTP client ──────────────────────────────────────────────────
 httpx>=0.27.0
 
-# ── STT — faster-whisper (replaces openai-whisper) ────────────────────────────
-# CTranslate2-based engine — 4× faster, same accuracy, lower VRAM.
-# Model weights are shared with openai-whisper (auto-downloaded on first run).
-# Requires: pip install faster-whisper
+# ── STT — faster-whisper (CTranslate2, 4× faster than openai-whisper) ─────────
 faster-whisper>=1.0.0
-
-# Audio decoding for faster-whisper (needed when reading WAV/MP3 files)
-# Not needed in rust_bridge mode (audio arrives as raw float32 numpy array).
 soundfile>=0.12.1
 
-# ── Audio capture — Python fallback mode only ─────────────────────────────────
-# In rust_bridge mode (default), the Rust engine handles capture.
-# sounddevice is only used when STT_MODE=voice (pure-Python fallback).
+# ── Audio capture (Python fallback mode only — STT_MODE=voice) ────────────────
 sounddevice>=0.4.6
 numpy>=1.24.0
 
-# ── TTS — edge-tts (neural, 300+ voices, no system deps) ─────────────────────
+# ── TTS — edge-tts (neural, 300+ voices, zero system deps) ───────────────────
 edge-tts>=6.1.9
 
 # ── TTS audio playback ────────────────────────────────────────────────────────
-pydub>=0.25.1      # primary playback (needs ffmpeg at system level)
+pydub>=0.25.1      # primary playback backend (needs system ffmpeg)
 # sounddevice above doubles as playback backend
 
 # ── TTS — piper-tts (OFFLINE fallback, needs espeak-ng) ──────────────────────
 # Uncomment to enable:
 # piper-tts>=1.2.0
 
-# ── pyttsx3 — last-resort fallback ───────────────────────────────────────────
+# ── pyttsx3 — last-resort TTS fallback ───────────────────────────────────────
 pyttsx3>=2.90
+
+# ── Screen capture pipeline ───────────────────────────────────────────────────
+# Capture: MSS — low-latency cross-platform screen grab (< 5 ms/frame)
+mss>=9.0.1
+
+# Processing: OpenCV
+opencv-python>=4.8.0
+
+# UI element detection: YOLOv8 (model weights auto-downloaded on first use)
+# Default model: yolov8n.pt (~6 MB, COCO classes, ~10 ms/frame on CPU)
+# Swap YOLO_MODEL_PATH in .env for a fine-tuned UI-detection model.
+ultralytics>=8.0.0
+
+# OCR primary: PaddleOCR
+# Installed separately by `make install` with a non-fatal fallback
+# because paddlepaddle does not publish wheels for every Python version.
+# If install fails, screen.py falls back to Tesseract automatically.
+# To install manually: pip install paddlepaddle paddleocr
+
+# OCR fallback: pytesseract
+# Also requires the system Tesseract binary:
+#   Ubuntu/Debian: sudo apt install tesseract-ocr
+#   Arch Linux:    sudo pacman -S tesseract tesseract-data-eng
+#   macOS:         brew install tesseract
+#   Windows:       https://github.com/UB-Mannheim/tesseract/wiki
+pytesseract>=0.3.10
 
 # ── Browser automation ────────────────────────────────────────────────────────
 playwright>=1.44.0

@@ -1,12 +1,15 @@
 """
 core/planner.py — Async LLM planner backed by Ollama (100% free, runs locally).
 
-Primary model: deepseek-r1:7b  (set OLLAMA_MODEL in .env to change)
+Speed improvements:
+  • Streaming accumulation — first token arrives faster.
+  • num_ctx=2048, num_predict=512, temperature=0.1.
+  • Default model: llama3.2:3b (~3× faster than deepseek-r1:7b).
+    Set OLLAMA_MODEL=deepseek-r1:7b in .env for heavier reasoning.
 
-Fallback chain:
-  1. Ollama HTTP API  (standard path)
-  2. Auto-start Ollama subprocess if OLLAMA_AUTO_START=true
-  3. `ollama run <model>` via subprocess stdin (last resort)
+Screen actions (read_screen / find_element / click_element) are only emitted
+when the user explicitly asks about screen content. The planner never adds them
+speculatively — always on direct user request.
 """
 from __future__ import annotations
 
@@ -43,6 +46,9 @@ Available action types and their required params:
   hotkey          → {"keys": "ctrl+c"}
   screenshot      → {}
   type_text       → {"text": "..."}
+  read_screen     → {}                             (capture + OCR + element detection; describe what is on screen)
+  find_element    → {"label": "Submit"}            (locate a named button, field, or icon on screen)
+  click_element   → {"label": "Submit"}            (find and click a UI element by its label)
   switch_voice    → {"voice": "guy"}              (aria, jenny, guy, davis, ryan, sonia, natasha, william, neerja, prabhat)
   list_voices     → {}
 
@@ -66,6 +72,11 @@ Rules:
 8. confidence is a float 0.0–1.0.
 9. Never leave params as {} unless the action genuinely needs no parameters.
 10. Strip any <think>…</think> reasoning from your output — return ONLY JSON.
+11. Use read_screen ONLY when the user explicitly asks what is on the screen,
+    to read or summarise on-screen content, or to verify something visually.
+12. Use find_element when the user asks where a specific button/field/icon is.
+13. Use click_element when the user says "click", "press", or "tap" a named element.
+14. For sequential screen tasks, chain actions: e.g. find_element then click_element.
 """
 
 
@@ -84,7 +95,6 @@ def _extract_json(text: str) -> dict:
 
 
 def _fallback(msg: str = "") -> Plan:
-    """Safe fallback plan when the model returns unparseable output."""
     reply = msg or "I had trouble processing that. Could you rephrase your request?"
     return Plan(
         actions=[Action(
@@ -130,7 +140,7 @@ class Planner:
         ]
 
         try:
-            raw_text = await self._call_ollama_api(messages)
+            raw_text = await self._call_ollama_streaming(messages)
             if config.DEBUG:
                 print(f"\n[Planner raw]\n{raw_text}\n")
             return self._build_plan(_extract_json(raw_text))
@@ -140,7 +150,7 @@ class Planner:
             if config.OLLAMA_AUTO_START:
                 if await self._try_start_ollama():
                     try:
-                        raw_text = await self._call_ollama_api(messages)
+                        raw_text = await self._call_ollama_streaming(messages)
                         return self._build_plan(_extract_json(raw_text))
                     except Exception as exc2:
                         if config.DEBUG:
@@ -158,22 +168,43 @@ class Planner:
                 print(f"[Planner] Unexpected error: {exc}")
             return _fallback()
 
-    # ── Ollama HTTP call ───────────────────────────────────────────────────────
-    async def _call_ollama_api(self, messages: list) -> str:
-        resp = await self._client.post(
+    # ── Ollama streaming call ─────────────────────────────────────────────────
+    async def _call_ollama_streaming(self, messages: list) -> str:
+        """
+        Stream tokens from Ollama — lower perceived latency and avoids
+        silent timeout on slower hardware.
+        """
+        chunks: list[str] = []
+
+        async with self._client.stream(
+            "POST",
             "/api/chat",
             json={
                 "model":    config.OLLAMA_MODEL,
                 "messages": messages,
-                "stream":   False,
+                "stream":   True,
                 "options": {
                     "temperature": config.LLM_TEMPERATURE,
                     "num_predict": config.LLM_MAX_TOKENS,
+                    "num_ctx":     config.LLM_NUM_CTX,
                 },
             },
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"].strip()
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                token = obj.get("message", {}).get("content", "")
+                if token:
+                    chunks.append(token)
+                if obj.get("done"):
+                    break
+
+        return "".join(chunks).strip()
 
     # ── Auto-start Ollama ──────────────────────────────────────────────────────
     async def _try_start_ollama(self) -> bool:
@@ -227,7 +258,7 @@ class Planner:
             "Please ensure Ollama is installed and run: ollama serve"
         )
 
-    # ── Build Plan — never mutates input dicts ─────────────────────────────────
+    # ── Build Plan ─────────────────────────────────────────────────────────────
     def _build_plan(self, data: dict) -> Plan:
         raw_actions = data.get("actions", [])
         if not raw_actions:
@@ -235,7 +266,6 @@ class Planner:
 
         actions: List[Action] = []
         for a in raw_actions:
-            # Build a clean copy — do not mutate the original dict
             action_type = a.get("type", "converse").lower().strip().replace(" ", "_")
             actions.append(Action(
                 type=action_type,

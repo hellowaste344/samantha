@@ -8,6 +8,12 @@ Protocol:
   {"type":"audio_chunk","data":"<base64 f32-le>","n_samples":N}
   {"type":"speech_end","duration_ms":1250}
   {"type":"ping"}
+
+Speed notes:
+  beam_size=1  — greedy decoding, 3–5× faster than beam_size=5 with only a
+                 minor accuracy cost on clean desktop speech.
+  vad_filter=True with tight thresholds strips leading/trailing silence so
+  Whisper processes less audio per utterance.
 """
 from __future__ import annotations
 
@@ -16,8 +22,6 @@ import base64
 import json
 import numpy as np
 import os
-import socket
-import struct
 import time
 from pathlib import Path
 from typing import AsyncIterator, Optional
@@ -41,7 +45,7 @@ class AudioBridge:
     """
 
     def __init__(self, whisper_model):
-        self._model   = whisper_model   # faster-whisper WhisperModel instance
+        self._model   = whisper_model
         self._sock:   Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._connected = False
@@ -111,8 +115,8 @@ class AudioBridge:
                     in_speech = True
 
                 elif mtype == "audio_chunk" and in_speech:
-                    raw   = base64.b64decode(msg["data"])
-                    arr   = np.frombuffer(raw, dtype=np.float32).copy()
+                    raw = base64.b64decode(msg["data"])
+                    arr = np.frombuffer(raw, dtype=np.float32).copy()
                     pcm_chunks.append(arr)
 
                 elif mtype == "speech_end" and in_speech:
@@ -135,18 +139,21 @@ class AudioBridge:
     def _transcribe(self, audio: np.ndarray, sample_rate: int) -> str:
         """
         Run faster-whisper transcription synchronously (called via executor).
-        Returns stripped transcript string, or empty string on failure.
+
+        beam_size=1  — greedy decode: 3–5× faster than beam_size=5.
+                        Accuracy is nearly identical for short desktop commands.
+        vad_filter   — strip silence from utterance edges before decoding.
         """
         try:
             t0 = time.perf_counter()
             segments, info = self._model.transcribe(
                 audio,
-                language          = config.STT_LANGUAGE,
-                beam_size         = 5,
-                vad_filter        = True,           # faster-whisper built-in VAD
-                vad_parameters    = {
-                    "min_silence_duration_ms": 500,
-                    "threshold": 0.5,
+                language                   = config.STT_LANGUAGE,
+                beam_size                  = 1,          # greedy — fastest path
+                vad_filter                 = True,
+                vad_parameters             = {
+                    "min_silence_duration_ms": 300,      # trim trailing silence fast
+                    "threshold": 0.4,
                 },
                 condition_on_previous_text = False,
             )

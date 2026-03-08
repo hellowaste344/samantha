@@ -13,6 +13,10 @@
 //   3. ipc::run_server (async task)
 //      Unix socket server → sends AudioEvents as newline-delimited JSON
 //      to the Python agent.
+//
+// Speed tuning vs previous defaults:
+//   silence_ms   800 → 600  — cuts end-of-speech dead-time by 200 ms.
+//   min_speech_ms 300 → 200  — discards noise bursts faster.
 
 mod capture;
 mod ipc;
@@ -38,10 +42,12 @@ struct Args {
     #[arg(long, default_value_t = 2)]
     vad_level: u8,
 
-    #[arg(long, default_value_t = 800)]
+    /// Milliseconds of consecutive silence that ends an utterance (lower = faster response)
+    #[arg(long, default_value_t = 600)]
     silence_ms: u64,
 
-    #[arg(long, default_value_t = 300)]
+    /// Minimum speech length to accept; shorter bursts are discarded as noise
+    #[arg(long, default_value_t = 200)]
     min_speech_ms: u64,
 }
 
@@ -58,6 +64,8 @@ async fn main() -> Result<()> {
     info!(
         socket  = %args.socket.display(),
         rate    = args.sample_rate,
+        silence_ms = args.silence_ms,
+        min_speech_ms = args.min_speech_ms,
         "Samantha Audio Engine starting"
     );
 

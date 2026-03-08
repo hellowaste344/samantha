@@ -1,8 +1,9 @@
 """
 tools/os_control.py — OS-level controls: open apps, hotkeys, screenshots, typing.
 
-In Docker / headless environments, actions that require a display (hotkeys,
-type_text, screenshot) return a clear informational message instead of crashing.
+Display-presence is detected via _has_display() on every call.
+Docker / headless awareness is no longer handled here; set STT_MODE and
+TTS_ENGINE in .env instead.
 """
 from __future__ import annotations
 
@@ -10,8 +11,6 @@ import datetime
 import os
 import subprocess
 import sys
-
-import config
 
 
 class OSControl:
@@ -46,16 +45,16 @@ class OSControl:
 
     @staticmethod
     def _has_display() -> bool:
-        """Return True when a graphical display is available for pyautogui."""
+        """Return True when a graphical display is available."""
         if sys.platform in ("win32", "darwin"):
             return True
         return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
     def open_app(self, app: str) -> str:
-        if config.DOCKER_MODE:
+        if not self._has_display():
             return (
-                f"Launching desktop applications is not supported in Docker mode. "
-                f"'{app}' cannot be opened inside the container."
+                f"Cannot open '{app}' — no display detected (running headless). "
+                "Set DISPLAY or WAYLAND_DISPLAY if you have a compositor running."
             )
         platform = self._platform()
         key      = app.lower().strip()
@@ -85,7 +84,7 @@ class OSControl:
         if not self._has_display():
             return (
                 f"Keyboard shortcut '{keys}' is not available — "
-                "no display detected (running headless or in Docker)."
+                "no display detected (running headless)."
             )
         try:
             import pyautogui
@@ -101,7 +100,7 @@ class OSControl:
         if not self._has_display():
             return (
                 "Text typing is not available — "
-                "no display detected (running headless or in Docker)."
+                "no display detected (running headless)."
             )
         try:
             import pyautogui
@@ -116,7 +115,7 @@ class OSControl:
         if not self._has_display():
             return (
                 "Screenshots via pyautogui are not available — "
-                "no display detected (running headless or in Docker)."
+                "no display detected (running headless)."
             )
         try:
             import pyautogui

@@ -22,8 +22,9 @@ CORS origins registered
   https://tauri.localhost     Tauri production (Linux / Windows)
   tauri://localhost           Tauri production (macOS)
   http://localhost:3000       Any local web dev server
-  https://<DOMAIN>            Production website
+  https://zenonai.net         Production website
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,10 +35,11 @@ from typing import Any
 import config
 
 try:
+    import uvicorn
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
-    import uvicorn
+
     _AVAILABLE = True
 except ImportError:
     _AVAILABLE = False
@@ -73,12 +75,12 @@ def _make_app(memory) -> "FastAPI":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "http://localhost:1420",      # Tauri vite dev server
-            "http://localhost:3000",      # General local dev
-            "https://tauri.localhost",    # Tauri prod — Linux / Windows
-            "tauri://localhost",          # Tauri prod — macOS
+            "http://localhost:1420",  # Tauri vite dev server
+            "http://localhost:3000",  # General local dev
+            "https://tauri.localhost",  # Tauri prod — Linux / Windows
+            "tauri://localhost",  # Tauri prod — macOS
             f"https://{config.DOMAIN}",  # Production website
-            "*",                          # Permissive for development
+            "*",  # Permissive for development
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -94,13 +96,13 @@ def _make_app(memory) -> "FastAPI":
     @app.get("/api/status")
     async def status():
         return {
-            "agent":      config.AGENT_NAME,
-            "state":      "idle",
-            "stt_mode":   config.STT_MODE,
+            "agent": config.AGENT_NAME,
+            "state": "idle",
+            "stt_mode": config.STT_MODE,
             "tts_engine": config.TTS_ENGINE,
-            "llm_model":  config.OLLAMA_MODEL,
-            "domain":     config.DOMAIN,
-            "uptime":     time.time(),
+            "llm_model": config.OLLAMA_MODEL,
+            "domain": config.DOMAIN,
+            "uptime": time.time(),
         }
 
     @app.get("/api/history")
@@ -159,10 +161,10 @@ async def run_server(memory):
     app = _make_app(memory)
     cfg = uvicorn.Config(
         app,
-        host      ="127.0.0.1",
-        port      = config.API_PORT,
-        log_level ="warning",
-        loop      ="asyncio",
+        host="127.0.0.1",
+        port=config.API_PORT,
+        log_level="warning",
+        loop="asyncio",
     )
     server = uvicorn.Server(cfg)
     print(f"[API] Tauri bridge → http://127.0.0.1:{config.API_PORT}")

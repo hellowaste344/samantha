@@ -12,13 +12,12 @@ Modes
 
   text         — keyboard (stdin) input. No mic required.
 
-faster-whisper advantages over openai-whisper
-──────────────────────────────────────────────
-  • 4× faster on CPU (CTranslate2 INT8 quantisation)
-  • ~2× lower memory footprint
-  • Built-in VAD filter (silero) for better segmentation
-  • Streaming word timestamps
-  • Same model weights — drop-in replacement
+Speed notes
+───────────
+  beam_size=1  — greedy decoding, 3–5× faster than beam_size=5.
+                 Accuracy remains high for short desktop commands.
+  WHISPER_MODEL=tiny (default) — ~32× realtime on CPU with int8 quantisation.
+  Set WHISPER_MODEL=small in .env for higher accuracy at ~6× realtime.
 """
 from __future__ import annotations
 
@@ -63,7 +62,7 @@ def _load_model():
                 device       = config.WHISPER_DEVICE,
                 compute_type = config.WHISPER_COMPUTE_TYPE,
                 cpu_threads  = config.WHISPER_CPU_THREADS,
-                num_workers  = 1,
+                num_workers  = 2,   # parallel decode workers
             )
             elapsed = (time.perf_counter() - t0) * 1000
             _console.print(f"[dim][STT] faster-whisper ready ✓  ({elapsed:.0f} ms)[/dim]")
@@ -92,7 +91,7 @@ class STT:
         requested = os.environ.get("STT_MODE") or config.STT_MODE or "rust_bridge"
 
         self._model  = _load_model()
-        self._bridge = None   # AudioBridge instance (lazy, set by orchestrator)
+        self._bridge = None
         self._q: queue.Queue[str] = queue.Queue()
 
         if self._model is None:
@@ -103,7 +102,6 @@ class STT:
         if requested == "text":
             self._mode = "text"
         elif requested == "rust_bridge":
-            # Will be confirmed when bridge is set by Orchestrator.setup()
             self._mode = "rust_bridge"
         else:
             self._mode = "voice"
@@ -118,7 +116,7 @@ class STT:
             )
             self._mode = "text"
 
-    # ── Public API (called by Orchestrator) ────────────────────────────────────
+    # ── Public API ─────────────────────────────────────────────────────────────
 
     @property
     def mode(self) -> str:
@@ -161,7 +159,6 @@ class STT:
         The AudioBridge feeds transcripts into self._q from its async loop.
         """
         try:
-            # Show listening indicator — bridge is always on
             with Live(
                 Spinner("dots2", text=Text("  Samantha is listening…", style="bold green")),
                 refresh_per_second=10,
@@ -234,7 +231,7 @@ class STT:
                 segments, info = self._model.transcribe(
                     audio,
                     language                   = config.STT_LANGUAGE,
-                    beam_size                  = 5,
+                    beam_size                  = 1,          # greedy — fastest
                     vad_filter                 = True,
                     condition_on_previous_text = False,
                 )

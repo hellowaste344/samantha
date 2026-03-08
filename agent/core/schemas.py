@@ -19,11 +19,15 @@ class ActionType(str, Enum):
     YOUTUBE_PLAY   = "youtube_play"    # search and auto-play first result
     # ── Knowledge ─────────────────────────────────────────────────────
     WIKIPEDIA      = "wikipedia"       # Wikipedia article lookup
-    # ── Desktop ──────────────────────────────────────────────────────
+    # ── Desktop OS ────────────────────────────────────────────────────
     OPEN_APP       = "open_app"        # launch a desktop application
     HOTKEY         = "hotkey"          # send a keyboard shortcut
-    SCREENSHOT     = "screenshot"      # capture the screen
+    SCREENSHOT     = "screenshot"      # basic screenshot save (pyautogui)
     TYPE_TEXT      = "type_text"       # type text at current cursor position
+    # ── Screen vision (MSS + OpenCV + YOLOv8 + OCR) ──────────────────
+    READ_SCREEN    = "read_screen"     # capture + OCR + element detection → describe
+    FIND_ELEMENT   = "find_element"    # locate a named UI element, return coords
+    CLICK_ELEMENT  = "click_element"   # find element and click it
     # ── Communication ────────────────────────────────────────────────
     SEND_EMAIL     = "send_email"      # compose & send via Gmail web
     # ── Conversation ─────────────────────────────────────────────────
@@ -53,6 +57,9 @@ class Action(BaseModel):
     # HOTKEY          {"keys": "ctrl+c"}
     # SCREENSHOT      {}
     # TYPE_TEXT       {"text": "..."}
+    # READ_SCREEN     {}   (optional: {"monitor": 1})
+    # FIND_ELEMENT    {"label": "Submit"}
+    # CLICK_ELEMENT   {"label": "Submit"}
     # SWITCH_VOICE    {"voice": "ryan"}
     # LIST_VOICES     {}
 
