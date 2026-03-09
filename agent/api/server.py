@@ -75,12 +75,14 @@ def _make_app(memory) -> "FastAPI":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "http://localhost:1420",  # Tauri vite dev server
-            "http://localhost:3000",  # General local dev
-            "https://tauri.localhost",  # Tauri prod — Linux / Windows
-            "tauri://localhost",  # Tauri prod — macOS
+            "http://localhost:1420",      # Tauri vite dev server
+            "http://localhost:3000",      # General local dev
+            "https://tauri.localhost",    # Tauri prod — Linux / Windows
+            "tauri://localhost",          # Tauri prod — macOS
             f"https://{config.DOMAIN}",  # Production website
-            "*",  # Permissive for development
+            # NOTE: "*" is intentionally absent — it is incompatible with
+            # allow_credentials=True and causes browsers to reject all
+            # credentialed requests (CORS preflight failure).
         ],
         allow_credentials=True,
         allow_methods=["*"],

@@ -1,0 +1,1 @@
+vec::in_place_collect::<impl vec::spec_from_iter::SpecFromIter<OwnedFormatItem, Map<std::vec::IntoIter<format_item::Item<'_>>, fn(format_item::Item<'_>) -> OwnedFormatItem {<format_item::Item<'_> as Into<OwnedFormatItem>>::into}>> for Vec<OwnedFormatItem>>::from_iter

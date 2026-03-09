@@ -1,0 +1,14 @@
+/home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/deps/serde-24c2622e2304a447.d: /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/build/serde-667397a1fbea718d/out/private.rs
+
+/home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/deps/libserde-24c2622e2304a447.rlib: /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/build/serde-667397a1fbea718d/out/private.rs
+
+/home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/deps/libserde-24c2622e2304a447.rmeta: /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/build/serde-667397a1fbea718d/out/private.rs
+
+/home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/build/serde-667397a1fbea718d/out/private.rs:
+
+# env-dep:OUT_DIR=/home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/build/serde-667397a1fbea718d/out

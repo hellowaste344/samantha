@@ -38,6 +38,10 @@ class AudioBridge:
     """
     Async client to the Rust audio engine.
 
+    Supports two transports selected by the AUDIO_SOCKET env var:
+      - Unix socket (default, Linux/macOS):  /tmp/samantha_audio.sock
+      - TCP socket  (WSL, Windows mic bridge): tcp://127.0.0.1:9876
+
     Usage:
         bridge = AudioBridge()
         async for transcript in bridge.utterances():
@@ -50,29 +54,59 @@ class AudioBridge:
         self._writer: Optional[asyncio.StreamWriter] = None
         self._connected = False
 
+        # Resolved from AUDIO_SOCKET at construction time so connect() and
+        # error messages are consistent.
+        self._socket_env = os.getenv("AUDIO_SOCKET", "/tmp/samantha_audio.sock")
+        self._use_tcp    = self._socket_env.startswith("tcp://")
+
     async def connect(self, retries: int = 10, delay: float = 0.5):
-        """Connect (or reconnect) to the Rust engine socket."""
+        """Connect (or reconnect) to the Rust engine socket.
+
+        Supports both Unix-domain sockets and TCP sockets so that the WSL
+        windows_mic_bridge (TCP) and the native Rust engine (Unix) are both
+        handled transparently.
+        """
         for attempt in range(1, retries + 1):
             try:
-                reader, writer = await asyncio.open_unix_connection(str(SOCKET_PATH))
-                self._sock   = reader
-                self._writer = writer
+                if self._use_tcp:
+                    # tcp://127.0.0.1:9876  →  host="127.0.0.1", port=9876
+                    _, _, hostport = self._socket_env.partition("://")
+                    host, _, port_str = hostport.rpartition(":")
+                    reader, writer = await asyncio.open_connection(
+                        host, int(port_str)
+                    )
+                else:
+                    reader, writer = await asyncio.open_unix_connection(
+                        self._socket_env
+                    )
+
+                self._sock    = reader
+                self._writer  = writer
                 self._connected = True
                 _console.print(
-                    "[dim][AudioBridge] Connected to Rust audio engine ✓[/dim]"
+                    "[dim][AudioBridge] Connected to audio engine ✓[/dim]"
                 )
                 return
-            except (FileNotFoundError, ConnectionRefusedError):
+            except (FileNotFoundError, ConnectionRefusedError, OSError):
                 if attempt == retries:
                     raise RuntimeError(
-                        f"Cannot connect to Rust audio engine at {SOCKET_PATH}.\n"
-                        "  Is samantha-audio running?  Run:  samantha-audio &"
+                        f"Cannot connect to audio engine at {self._socket_env}.\n"
+                        "  Native:  Is samantha-audio running?  Run: samantha-audio &\n"
+                        "  WSL:     Is windows_mic_bridge.py running on Windows Python?"
                     )
                 await asyncio.sleep(delay)
 
-    async def utterances(self) -> AsyncIterator[str]:
+    async def utterances(self) -> AsyncIterator[tuple[str, float]]:
         """
-        Async generator that yields one transcribed string per detected utterance.
+        Async generator that yields (transcript, capture_start_time) per utterance.
+
+        capture_start_time is a time.perf_counter() value stamped the instant
+        speech_start fired for that utterance — i.e. the earliest moment mic
+        audio was collected for it.  The Orchestrator compares this against its
+        own _tts_ended_at stamp so each transcript carries its own birth
+        timestamp through the pipeline rather than sharing a mutable field that
+        would be overwritten by the next utterance.
+
         Automatically reconnects if the Rust engine restarts.
         """
         while True:
@@ -84,14 +118,23 @@ class AudioBridge:
                     await asyncio.sleep(2)
                     continue
 
-            async for transcript in self._read_loop():
-                yield transcript
+            async for item in self._read_loop():
+                yield item
 
-    async def _read_loop(self) -> AsyncIterator[str]:
-        """Read events from socket, accumulate audio, transcribe on speech_end."""
-        pcm_chunks: list[np.ndarray] = []
+    async def _read_loop(self) -> AsyncIterator[tuple[str, float]]:
+        """Read events from socket, accumulate audio, transcribe on speech_end.
+
+        Yields (transcript, capture_start_time) tuples.  capture_start_time is
+        captured as a LOCAL variable when speech_start fires and travels with
+        the audio buffer through to the yield — it is never shared or mutated
+        by subsequent utterances.  This prevents the race where a new
+        speech_start overwrites a shared timestamp before the previous
+        transcript has been yielded.
+        """
+        pcm_chunks:   list[np.ndarray] = []
         sample_rate = config.AUDIO_SAMPLE_RATE
         in_speech   = False
+        capture_time: float = 0.0   # local — belongs to the utterance being built
 
         try:
             assert self._sock is not None
@@ -110,9 +153,14 @@ class AudioBridge:
                 mtype = msg.get("type", "")
 
                 if mtype == "speech_start":
-                    sample_rate = msg.get("sample_rate", config.AUDIO_SAMPLE_RATE)
+                    sample_rate  = msg.get("sample_rate", config.AUDIO_SAMPLE_RATE)
                     pcm_chunks.clear()
-                    in_speech = True
+                    in_speech    = True
+                    # Stamp is stored in a LOCAL variable, not a shared field.
+                    # This value travels with pcm_chunks and is yielded together
+                    # with the transcript — it cannot be clobbered by the next
+                    # speech_start arriving while Whisper is still transcribing.
+                    capture_time = time.perf_counter()
 
                 elif mtype == "audio_chunk" and in_speech:
                     raw = base64.b64decode(msg["data"])
@@ -123,11 +171,16 @@ class AudioBridge:
                     in_speech = False
                     if pcm_chunks:
                         audio = np.concatenate(pcm_chunks)
+                        # Snapshot capture_time before awaiting so that even
+                        # if a new speech_start fires during transcription the
+                        # value passed to the orchestrator is the one that
+                        # belongs to THIS utterance.
+                        this_capture_time = capture_time
                         transcript = await asyncio.get_event_loop().run_in_executor(
                             None, self._transcribe, audio, sample_rate
                         )
                         if transcript:
-                            yield transcript
+                            yield transcript, this_capture_time
                     pcm_chunks.clear()
 
                 # pings are silently ignored

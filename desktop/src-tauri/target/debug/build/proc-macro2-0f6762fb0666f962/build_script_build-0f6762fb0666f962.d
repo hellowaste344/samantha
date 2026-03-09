@@ -1,0 +1,5 @@
+/home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/build/proc-macro2-0f6762fb0666f962/build_script_build-0f6762fb0666f962.d: /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.106/build.rs
+
+/home/Xashe/Downloads/self_agent/now/zenonai/desktop/src-tauri/target/debug/build/proc-macro2-0f6762fb0666f962/build_script_build-0f6762fb0666f962: /home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.106/build.rs
+
+/home/Xashe/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.106/build.rs:

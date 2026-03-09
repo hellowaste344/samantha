@@ -1,1 +1,0 @@
-cargo:rerun-if-env-changed=RUST_JACK_DLOPEN

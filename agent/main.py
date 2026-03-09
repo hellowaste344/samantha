@@ -5,7 +5,6 @@ Modes:
   python main.py              → rust_bridge mode (Rust audio + faster-whisper)
   python main.py --voice      → Python-only voice mode (sounddevice fallback)
   python main.py --text       → text/keyboard mode (no mic)
-  python main.py --daemon     → headless mode for systemd (no TUI panels)
   python main.py --test       → smoke-test Ollama planner and exit
   python main.py --memory     → print conversation history and exit
   python main.py --clear      → wipe conversation memory and exit
@@ -35,15 +34,6 @@ async def main(args: argparse.Namespace):
     from rich.panel import Panel
 
     console = Console()
-
-    if not args.daemon:
-        console.print(
-            Panel.fit(
-                "[bold magenta]✨  Samantha v2 — AI Voice Assistant[/bold magenta]\n"
-                "[dim]faster-whisper · Ollama · Rust audio engine · edge-tts · Playwright[/dim]",
-                border_style="magenta",
-            )
-        )
 
     # ── Utility modes ──────────────────────────────────────────────────────────
     if args.voices:
@@ -103,12 +93,12 @@ async def main(args: argparse.Namespace):
             return
         for cmd in [
             "What is the capital of France?",
+            "Take a screenshot",
             "Open YouTube",
             "Play lo-fi music on YouTube",
             "Search Google for open-source AI",
             "Open Spotify",
             "Send an email to test@example.com about the meeting",
-            "Take a screenshot",
         ]:
             console.print(f"[cyan]▶[/cyan] {cmd}")
             plan = await planner.plan(user_input=cmd, context=[], memory_context="")
@@ -158,7 +148,8 @@ if __name__ == "__main__":
     parser.add_argument("--voice", action="store_true", help="Python-only voice mode")
     parser.add_argument("--text", action="store_true", help="Keyboard text input")
     parser.add_argument(
-        "--daemon", action="store_true", help="Headless daemon mode (systemd)"
+        "--daemon",
+        action="store_true",
     )
     parser.add_argument(
         "--test", action="store_true", help="Smoke-test planner and exit"

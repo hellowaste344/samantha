@@ -21,6 +21,7 @@ Screen pipeline (MSS + OpenCV + YOLOv8 + OCR)
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Optional
 
 import config
@@ -56,6 +57,14 @@ class Orchestrator:
         self._bridge_task:    Optional[asyncio.Task] = None
         self._api_task:       Optional[asyncio.Task] = None
         self._chat_pump_task: Optional[asyncio.Task] = None
+
+        # Monotonic timestamp set by _speak() the instant TTS finishes.
+        # _pump_bridge compares each utterance's capture-start time against
+        # this value — if audio capture began before TTS ended, the utterance
+        # caught Samantha's own voice and is silently discarded.
+        # Using perf_counter() timestamps (same clock as AudioBridge) means
+        # no sleep or cooldown is needed: the check is instantaneous.
+        self._tts_ended_at: float = 0.0
 
     async def setup(self):
         from voice_io.tts import TTS
@@ -153,9 +162,26 @@ class Orchestrator:
 
     async def _pump_bridge(self):
         assert self._bridge is not None
-        async for transcript in self._bridge.utterances():
-            if transcript:
-                self._stt.feed(transcript)
+        async for transcript, capture_time in self._bridge.utterances():
+            if not transcript:
+                continue
+            # Each transcript now carries its OWN capture timestamp that was
+            # snapshotted when speech_start fired for that specific utterance.
+            # It is never overwritten by a subsequent utterance, eliminating
+            # the race where a new speech_start clobbered the shared field
+            # before the previous Whisper job finished.
+            #
+            # If this utterance's mic capture started before TTS ended it is
+            # Samantha's own voice — discard instantly, zero overhead.
+            if capture_time < self._tts_ended_at:
+                if config.DEBUG:
+                    console.print(
+                        f"[dim][Bridge] self-transcript discarded "
+                        f"(captured {self._tts_ended_at - capture_time:.3f}s "
+                        f"before TTS ended): {transcript!r}[/dim]"
+                    )
+                continue
+            self._stt.feed(transcript)
 
     async def _pump_chat_queue(self):
         try:
@@ -430,3 +456,8 @@ class Orchestrator:
         except Exception as exc:
             if config.DEBUG:
                 console.print(f"[red][TTS error][/red] {exc}")
+        finally:
+            # Stamp the moment TTS finished.  Any utterance whose mic capture
+            # started before this timestamp is Samantha's own voice and will
+            # be discarded in _pump_bridge — no sleep, no cooldown required.
+            self._tts_ended_at = time.perf_counter()

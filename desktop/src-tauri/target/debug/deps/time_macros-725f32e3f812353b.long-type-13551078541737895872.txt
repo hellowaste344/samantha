@@ -1,0 +1,1 @@
+vec::in_place_collect::<impl vec::spec_from_iter::SpecFromIter<format_item::Item<'_>, iter::adapters::GenericShunt<'_, Map<std::vec::IntoIter<ast::Item<'_>>, for<'a> fn(ast::Item<'a>) -> Result<format_item::Item<'a>, format_description::Error> {format_item::Item::<'_>::from_ast}>, Result<Infallible, format_description::Error>>> for Vec<format_item::Item<'_>>>::from_iter
