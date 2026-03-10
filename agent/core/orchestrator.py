@@ -21,6 +21,7 @@ Screen pipeline (MSS + OpenCV + YOLOv8 + OCR)
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from typing import Optional
 
@@ -58,13 +59,23 @@ class Orchestrator:
         self._api_task:       Optional[asyncio.Task] = None
         self._chat_pump_task: Optional[asyncio.Task] = None
 
-        # Monotonic timestamp set by _speak() the instant TTS finishes.
-        # _pump_bridge compares each utterance's capture-start time against
-        # this value — if audio capture began before TTS ended, the utterance
-        # caught Samantha's own voice and is silently discarded.
-        # Using perf_counter() timestamps (same clock as AudioBridge) means
-        # no sleep or cooldown is needed: the check is instantaneous.
-        self._tts_ended_at: float = 0.0
+        # ── TTS self-echo suppression ────────────────────────────────────────
+        # _tts_active is SET before _speak() starts TTS and CLEARED in its
+        # finally block, after which _tts_ended_at is stamped.
+        # _pump_bridge uses two complementary guards:
+        #
+        #   1. _tts_active.is_set()          — TTS is still playing RIGHT NOW;
+        #                                       any concurrent capture is self-voice.
+        #   2. capture_time < _tts_ended_at  — TTS just finished but this
+        #                                       utterance was already mid-flight
+        #                                       (Whisper latency can deliver a
+        #                                       transcript after playback ends).
+        #
+        # Together they close the race that the old single-timestamp check
+        # missed: audio captured DURING the current TTS session arrives with
+        # capture_time > previous _tts_ended_at and was incorrectly accepted.
+        self._tts_active:   threading.Event = threading.Event()
+        self._tts_ended_at: float           = 0.0
 
     async def setup(self):
         from voice_io.tts import TTS
@@ -165,20 +176,17 @@ class Orchestrator:
         async for transcript, capture_time in self._bridge.utterances():
             if not transcript:
                 continue
-            # Each transcript now carries its OWN capture timestamp that was
-            # snapshotted when speech_start fired for that specific utterance.
-            # It is never overwritten by a subsequent utterance, eliminating
-            # the race where a new speech_start clobbered the shared field
-            # before the previous Whisper job finished.
-            #
-            # If this utterance's mic capture started before TTS ended it is
-            # Samantha's own voice — discard instantly, zero overhead.
-            if capture_time < self._tts_ended_at:
+            # Guard 1: TTS is actively playing right now — any concurrent
+            #          capture is Samantha's own voice; discard immediately.
+            # Guard 2: TTS just finished but this transcript was in-flight
+            #          (Whisper has latency); capture started before TTS ended.
+            # Both checks are zero-overhead boolean/float comparisons.
+            if self._tts_active.is_set() or capture_time < self._tts_ended_at:
                 if config.DEBUG:
+                    reason = "TTS active" if self._tts_active.is_set() else \
+                             f"captured {self._tts_ended_at - capture_time:.3f}s before TTS ended"
                     console.print(
-                        f"[dim][Bridge] self-transcript discarded "
-                        f"(captured {self._tts_ended_at - capture_time:.3f}s "
-                        f"before TTS ended): {transcript!r}[/dim]"
+                        f"[dim][Bridge] self-transcript discarded ({reason}): {transcript!r}[/dim]"
                     )
                 continue
             self._stt.feed(transcript)
@@ -451,13 +459,17 @@ class Orchestrator:
     async def _speak(self, text: str):
         if not text:
             return
+        # Signal TTS start BEFORE entering the thread so _pump_bridge sees the
+        # flag immediately — no window where audio can slip through unguarded.
+        self._tts_active.set()
         try:
             await asyncio.to_thread(self._tts.speak, text)
         except Exception as exc:
             if config.DEBUG:
                 console.print(f"[red][TTS error][/red] {exc}")
         finally:
-            # Stamp the moment TTS finished.  Any utterance whose mic capture
-            # started before this timestamp is Samantha's own voice and will
-            # be discarded in _pump_bridge — no sleep, no cooldown required.
+            # Clear the active flag first, then stamp the end time so that
+            # _pump_bridge's guard-2 (capture_time < _tts_ended_at) takes over
+            # seamlessly for any in-flight Whisper jobs.
+            self._tts_active.clear()
             self._tts_ended_at = time.perf_counter()
