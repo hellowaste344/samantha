@@ -1,7 +1,8 @@
 __pycache__
 agent/.venv
 agent/.env
-agent/memory.db
+agent/*.pt
+agent/*.db
 agent/tools/__pycache__
 agent/voice_io/__pycache__
 agent/core/__pycache__
