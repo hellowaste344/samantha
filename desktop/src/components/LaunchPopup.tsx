@@ -26,7 +26,7 @@ export function LaunchPopup() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
     const W = canvas.width, H = canvas.height, CY = H / 2;
-    const NODES = 28, SPACING =8, AMP = 12, SPEED = 0.015;
+    const NODES = 28, SPACING =9, AMP = 13, SPEED = 0.015;
     let t = 0, raf: number;
 
     const drawStrand = (points: any[], cf: string, cb: string) => {
