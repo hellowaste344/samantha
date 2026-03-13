@@ -34,8 +34,7 @@ fn snap_overlay_right(app: &AppHandle) {
         return;
     };
 
-    let overlay_w: u32 = 290;
-
+    let overlay_w: u32 = 550;
     // primary_monitor first → current_monitor → first available → hard fallback
     let monitor = win
         .primary_monitor()
@@ -83,11 +82,11 @@ fn snap_overlay_right(app: &AppHandle) {
 #[tauri::command]
 fn launch_overlay(app: AppHandle) {
     snap_overlay_right(&app);
+
     if let Some(w) = app.get_webview_window("launch") {
         let _ = w.hide();
     }
 }
-
 /// Called by close button on the launch popup.
 #[tauri::command]
 fn close_launch(app: AppHandle) {
@@ -207,6 +206,27 @@ async fn check_backend_health(port: u16) -> bool {
         .unwrap_or(false)
 }
 
+#[tauri::command]
+fn set_overlay_width(app: AppHandle, width: u32) {
+    if let Some(win) = app.get_webview_window("overlay") {
+        let monitor = win.primary_monitor().ok().flatten()
+            .or_else(|| win.current_monitor().ok().flatten());
+        
+        let (new_x, screen_h) = match monitor {
+            Some(m) => {
+                let sw = m.size().width as i32;
+                let ox = m.position().x;
+                let sh = m.size().height as u32;
+                (ox + sw - width as i32, sh)
+            }
+            None => (1580, 1080),
+        };
+
+        let _ = win.set_size(PhysicalSize::new(width, screen_h));
+        let _ = win.set_position(PhysicalPosition::new(new_x, 0));
+    }
+}
+
 // ── System tray ───────────────────────────────────────────────────────────────
 
 fn setup_tray<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
@@ -295,6 +315,7 @@ pub fn run() {
             launch_overlay,
             close_launch,
             reposition_overlay,
+            set_overlay_width,
             show_overlay,
             show_main_window,
             open_settings,

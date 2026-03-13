@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState, useEffect, useRef } from "react";
 import { Eye, MousePointer, Settings, X, Zap, FolderOpen } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * LaunchPopup — 420×300 centered dark window.
@@ -15,10 +15,62 @@ import { Eye, MousePointer, Settings, X, Zap, FolderOpen } from "lucide-react";
  * purely cosmetic and runs in parallel — no 380ms blocking delay.
  */
 export function LaunchPopup() {
-  const [phase, setPhase]              = useState<"idle" | "animating" | "done">("idle");
-  const [showActions, setShowActions]  = useState(false);
+  const [phase, setPhase] = useState<"idle" | "animating" | "done">("idle");
+  const [showActions, setShowActions] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
-  const [pulse, setPulse]              = useState(false);
+  const [pulse, setPulse] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    const W = canvas.width, H = canvas.height, CY = H / 2;
+    const NODES = 28, SPACING =9, AMP = 13, SPEED = 0.015;
+    let t = 0, raf: number;
+
+    const drawStrand = (points: any[], cf: string, cb: string) => {
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i], p1 = points[i + 1];
+        const z = (p0.z + p1.z) / 2;
+        const t01 = (z + 1) / 2;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.strokeStyle = `rgba(${cf},${0.2 + 0.8 * t01})`;
+        ctx.lineWidth = 1.2 + 2.8 * t01;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+    };
+
+    const frame = () => {
+      ctx.clearRect(0, 0, W, H);
+      const pA = [], pB = [];
+      for (let i = 0; i < NODES; i++) {
+        const x = i * SPACING;
+        const a = (i / (NODES - 1)) * Math.PI * 4 - t;
+        pA.push({ x, y: CY + Math.sin(a) * AMP, z: Math.cos(a) });
+        pB.push({ x, y: CY + Math.sin(a + Math.PI) * AMP, z: Math.cos(a + Math.PI) });
+      }
+      
+      // strands
+      const azA = pA.reduce((s, p) => s + p.z, 0) / NODES;
+      const azB = pB.reduce((s, p) => s + p.z, 0) / NODES;
+      if (azA < azB) { drawStrand(pA, '59,130,246', '59,130,246'); drawStrand(pB, '96,165,250', '96,165,250'); }
+      else { drawStrand(pB, '96,165,250', '96,165,250'); drawStrand(pA, '59,130,246', '59,130,246'); }
+     
+      t += SPEED;
+      raf = requestAnimationFrame(frame);
+    };
+    frame();
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // In JSX:
+  <div className="lp-wave-ring" aria-hidden>
+    <canvas ref={canvasRef} width={100} height={100} style={{display:'block', borderRadius:'50%'}}/>
+  </div>
 
   // Heartbeat pulse for wave ring
   useEffect(() => {
@@ -149,16 +201,8 @@ export function LaunchPopup() {
         <p className="lp-greeting">Hi! I'm Samantha</p>
 
         {/* Waveform ring */}
-        <div className={`lp-wave-ring${pulse ? " lp-wave-ring--pulse" : ""}`} aria-hidden>
-          <div className="lp-wave-circle">
-            {[0.4, 0.7, 1.0, 0.85, 1.0, 0.7, 0.4].map((h, i) => (
-              <span
-                key={i}
-                className="lp-wave-bar"
-                style={{ animationDelay: `${i * 0.12}s`, height: `${h * 26}px` }}
-              />
-            ))}
-          </div>
+        <div className="lp-wave-ring" aria-hidden>
+          <canvas ref={canvasRef} width={150} height={60} style={{ display: 'block' }} />
         </div>
 
         {/* Status hint */}

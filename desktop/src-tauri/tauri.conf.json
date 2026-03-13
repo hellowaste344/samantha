@@ -3,73 +3,75 @@
   "productName": "Samantha",
   "version": "2.0.0",
   "identifier": "net.zenonai.samantha",
-
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
-
   "app": {
     "withGlobalTauri": true,
-    "security": { "csp": null },
+    "security": {
+      "csp": null
+    },
     "windows": [
       {
-        "label":       "launch",
-        "title":       "Samantha",
-        "url":         "/",
-        "width":       420,
-        "height":      300,
-        "resizable":   false,
-        "center":      true,
+        "label": "launch",
+        "title": "Samantha",
+        "url": "/",
+        "width": 900,
+        "height": 520,
+        "resizable": false,
+        "center": true,
         "decorations": false,
         "transparent": false,
-        "shadow":      true,
-        "theme":       "Dark",
-        "visible":     true
+        "shadow": true,
+        "theme": "Dark",
+        "visible": true
+      },
+      
+      {
+        "label": "overlay",
+        "title": "Samantha Overlay",
+        "url": "/",
+        "width": 550,
+        "height": 1000,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "theme": "Dark"
       },
       {
-        "label":         "overlay",
-        "title":         "Samantha Overlay",
-        "url":           "/",
-        "width":         290,
-        "height":        800,
-        "resizable":     false,
-        "decorations":   false,
-        "transparent":   true,
-        "shadow":        false,
-        "alwaysOnTop":   true,
-        "skipTaskbar":   true,
-        "visible":       false,
-        "theme":         "Dark"
-      },
-      {
-        "label":       "main",
-        "title":       "Samantha — ZenonAI",
-        "url":         "/",
-        "width":       920,
-        "height":      640,
-        "minWidth":    700,
-        "minHeight":   500,
-        "resizable":   true,
-        "center":      true,
+        "label": "main",
+        "title": "Samantha — ZenonAI",
+        "url": "/",
+        "width": 1820,
+        "height": 640,
+        "minWidth": 1400,
+        "minHeight": 500,
+        "resizable": true,
+        "center": true,
         "decorations": false,
         "transparent": false,
-        "shadow":      true,
-        "theme":       "Dark",
-        "visible":     false
+        "shadow": true,
+        "theme": "Dark",
+        "visible": false
       }
     ],
+    
     "trayIcon": {
-      "iconPath":       "icons/icon.png",
+      "iconPath": "icons/icon.png",
       "iconAsTemplate": true
     }
   },
-
   "bundle": {
-    "active":   true,
-    "targets":  "all",
+    "externalBin": ["binaries/samantha-backend"],
+    "active": true,
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -77,15 +79,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "category":         "Productivity",
+    "category": "Productivity",
     "shortDescription": "Samantha — Local AI Voice Assistant",
-    "longDescription":  "Voice AI agent powered by Ollama. Runs 100% locally.",
-    "copyright":        "© 2025 ZenonAI"
+    "longDescription": "Voice AI agent powered by Ollama. Runs 100% locally.",
+    "copyright": "© 2025 ZenonAI"
   },
-
   "plugins": {
-    "shell":     { "open": true },
-    "autostart": {},
-    "store":     {}
+    "shell": {
+      "open": true
+    },
+    "autostart": null,
+    "store": null
   }
 }
