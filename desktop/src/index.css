@@ -2,9 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────────────
    DESIGN TOKENS — ZenonAI Dark Theme
-   ───────────────────────────────────────────────────*/
+   ──────────────────────────────────────────────────────────────────────────── */
 
 :root {
   /* Colors — pure blacks + electric blue matching zenonai.com */
@@ -1077,6 +1077,44 @@ code {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.2);
   font-family: var(--font-mono);
+}
+
+.ob-voice-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.ob-voice-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.ob-voice-btn--listening {
+  background: rgba(0, 201, 167, 0.15);
+  border-color: rgba(0, 201, 167, 0.4);
+  box-shadow: 0 0 10px rgba(0, 201, 167, 0.2);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.ob-voice-btn--loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ob-voice-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
 }
 
 .ob-toggle {
