@@ -98,7 +98,36 @@ fn close_launch(app: AppHandle) {
 /// Re-snaps the overlay to the right edge (e.g. after monitor change).
 #[tauri::command]
 fn reposition_overlay(app: AppHandle) {
-    snap_overlay_right(&app);
+    if let Some(win) = app.get_webview_window("overlay") {
+        eprintln!("[reposition] found overlay window");
+        let overlay_w: u32 = 550;
+        let monitor = win
+            .primary_monitor().ok().flatten()
+            .or_else(|| win.current_monitor().ok().flatten());
+
+        let (new_x, new_y, screen_h) = match monitor {
+            Some(m) => {
+                let sw = m.size().width as i32;
+                let sh = m.size().height as u32;
+                let ox = m.position().x;
+                let oy = m.position().y;
+                let nx = ox + sw - overlay_w as i32;
+                eprintln!("[reposition] monitor {}x{} → x={} y={} w={} h={}", sw, sh, nx, oy, overlay_w, sh);
+                (nx, oy, sh)
+            }
+            None => {
+                eprintln!("[reposition] no monitor found");
+                (1630, 0, 1080_u32)
+            }
+        };
+
+        let _ = win.set_size(PhysicalSize::new(overlay_w, screen_h));
+        let _ = win.set_position(PhysicalPosition::new(new_x, new_y));
+        let _ = win.set_always_on_top(true);
+        eprintln!("[reposition] done");
+    } else {
+        eprintln!("[reposition] overlay window NOT found");
+    }
 }
 
 /// Shows or re-snaps the overlay bar.
