@@ -31,7 +31,7 @@ export default function App() {
   const { activeView, setActiveView } = useAgentStore();
   const { settings }                  = useSettingsStore();
   const { checkBackendHealth }        = useAgent();
-  useWebSocket();
+
 
   // Resolve window label on mount
   useEffect(() => {
