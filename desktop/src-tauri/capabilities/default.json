@@ -9,17 +9,27 @@
   ],
   "permissions": [
     "core:default",
+<<<<<<< HEAD
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-start-dragging",
+=======
     "core:event:default",
     "core:window:default",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
     "core:window:allow-hide",
     "core:window:allow-show",
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
     "shell:allow-open",
+    "shell:allow-execute",
+    "shell:allow-spawn",
     "notification:default",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "store:default"
-  ]
+]
 }

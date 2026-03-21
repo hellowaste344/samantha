@@ -8,34 +8,32 @@ How the Tauri desktop connects to this process
   GET  /api/status                     agent state + model info
   GET  /api/history                    SQLite conversation history
   POST /api/chat  {"text": "..."}      typed messages from overlay / main chat
+  POST /api/listen/start               voice button → start STT capture
+  POST /api/listen/stop                voice button → stop STT capture
   WS   /ws/events                      real-time transcript + state stream
 
-Screen pipeline (MSS + OpenCV + YOLOv8 + OCR)
-──────────────────────────────────────────────
-  ScreenCapture is instantiated lazily on first use. Models (YOLO, PaddleOCR)
-  are loaded inside the first call to analyze() so startup time is unaffected.
-  Actions READ_SCREEN / FIND_ELEMENT / CLICK_ELEMENT are only emitted by the
-  planner when the user explicitly asks about screen content.
-"""
+Typed messages (POST /api/chat) are processed directly via _handle_text()
+bypassing STT entirely — no waiting for audio input.
 
+Voice button (POST /api/listen/start) triggers _listen_once() which runs a
+full single-turn conversation: listen → think → act → speak.
+"""
 from __future__ import annotations
 
 import asyncio
-import threading
-import time
 from typing import Optional
 
-import config
 from rich.console import Console
-from rich.live import Live
-from rich.panel import Panel
+from rich.live    import Live
+from rich.panel   import Panel
 from rich.spinner import Spinner
-from rich.text import Text
+from rich.text    import Text
 
+import config
 from core.context import Context
-from core.memory import Memory
+from core.memory  import Memory
 from core.planner import Planner
-from core.schemas import Action, ActionType, Plan
+from core.schemas import ActionType, Plan, Action
 
 console = Console()
 
@@ -53,29 +51,10 @@ class Orchestrator:
         self._wiki:           Optional[object] = None
         self._os:             Optional[object] = None
         self._gmail:          Optional[object] = None
-        self._screen:         Optional[object] = None   # ← ScreenCapture (lazy)
-
         self._bridge_task:    Optional[asyncio.Task] = None
         self._api_task:       Optional[asyncio.Task] = None
         self._chat_pump_task: Optional[asyncio.Task] = None
-
-        # ── TTS self-echo suppression ────────────────────────────────────────
-        # _tts_active is SET before _speak() starts TTS and CLEARED in its
-        # finally block, after which _tts_ended_at is stamped.
-        # _pump_bridge uses two complementary guards:
-        #
-        #   1. _tts_active.is_set()          — TTS is still playing RIGHT NOW;
-        #                                       any concurrent capture is self-voice.
-        #   2. capture_time < _tts_ended_at  — TTS just finished but this
-        #                                       utterance was already mid-flight
-        #                                       (Whisper latency can deliver a
-        #                                       transcript after playback ends).
-        #
-        # Together they close the race that the old single-timestamp check
-        # missed: audio captured DURING the current TTS session arrives with
-        # capture_time > previous _tts_ended_at and was incorrectly accepted.
-        self._tts_active:   threading.Event = threading.Event()
-        self._tts_ended_at: float           = 0.0
+        self._listen_lock:    asyncio.Lock = asyncio.Lock()
 
     async def setup(self):
         from voice_io.tts import TTS
@@ -85,11 +64,10 @@ class Orchestrator:
         from voice_io.stt import STT
         self._stt = STT()
 
+        from tools.wikipedia  import WikipediaTool
+        from tools.os_control import OSControl
         from tools.browser    import BrowserTool
         from tools.gmail      import GmailTool
-        from tools.os_control import OSControl
-        from tools.wikipedia  import WikipediaTool
-
         self._wiki    = WikipediaTool()
         self._os      = OSControl()
         self._browser = BrowserTool()
@@ -107,16 +85,14 @@ class Orchestrator:
                 )
                 console.print("[dim][Orchestrator] Rust audio bridge active ✓[/dim]")
             except RuntimeError as e:
-                console.print(
-                    f"[yellow]⚠  {e}  →  falling back to Python voice[/yellow]"
-                )
-                import os as _os
-                _os.environ["STT_MODE"] = "voice"
+                console.print(f"[yellow]⚠  {e}  →  falling back to Python voice[/yellow]")
+                import os as _os; _os.environ["STT_MODE"] = "voice"
                 self._stt = STT()
 
-        # ── API server ────────────────────────────────────────────────────────
+        # ── API server (FastAPI + WebSocket for Tauri desktop) ────────────────
         if config.API_ENABLED:
-            from api.server import run_server
+            from api.server import run_server, set_orchestrator
+            set_orchestrator(self)
             self._api_task = asyncio.create_task(
                 run_server(self.memory), name="api-server"
             )
@@ -134,27 +110,18 @@ class Orchestrator:
 
         engine   = self._tts.engine_type
         voice    = self._tts.current_voice
-        tts_info = {
-            "edge":    f"edge-tts ({voice})",
-            "piper":   f"piper ({voice})",
-            "pyttsx3": "pyttsx3",
-            "none":    "silent",
-        }.get(engine, engine)
-        stt_label = {
-            "rust_bridge": "faster-whisper ← Rust engine",
-            "voice":       "faster-whisper (Python)",
-            "text":        "keyboard",
-        }.get(self._stt.mode, self._stt.mode)
+        tts_info = {"edge": f"edge-tts ({voice})", "piper": f"piper ({voice})",
+                    "pyttsx3": "pyttsx3", "none": "silent"}.get(engine, engine)
+        stt_label = {"rust_bridge": "faster-whisper ← Rust engine",
+                     "voice": "faster-whisper (Python)",
+                     "text": "keyboard"}.get(self._stt.mode, self._stt.mode)
 
-        console.print(
-            Panel.fit(
-                f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {config.GREETING}\n"
-                f"[dim]TTS: {tts_info}  |  STT: {stt_label}\n"
-                f"LLM: {config.OLLAMA_MODEL}  |  API: http://127.0.0.1:{config.API_PORT}\n"
-                f"Screen: MSS + OpenCV + YOLOv8 + PaddleOCR (on-demand)[/dim]",
-                border_style="magenta",
-            )
-        )
+        console.print(Panel.fit(
+            f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {config.GREETING}\n"
+            f"[dim]TTS: {tts_info}  |  STT: {stt_label}\n"
+            f"LLM: {config.OLLAMA_MODEL}  |  API: http://127.0.0.1:{config.API_PORT}[/dim]",
+            border_style="magenta",
+        ))
         await self._speak(config.GREETING)
 
     async def teardown(self):
@@ -172,26 +139,18 @@ class Orchestrator:
     # ── Internal pumps ────────────────────────────────────────────────────────
 
     async def _pump_bridge(self):
+        """Forward Rust audio engine utterances → STT feed queue."""
         assert self._bridge is not None
-        async for transcript, capture_time in self._bridge.utterances():
-            if not transcript:
-                continue
-            # Guard 1: TTS is actively playing right now — any concurrent
-            #          capture is Samantha's own voice; discard immediately.
-            # Guard 2: TTS just finished but this transcript was in-flight
-            #          (Whisper has latency); capture started before TTS ended.
-            # Both checks are zero-overhead boolean/float comparisons.
-            if self._tts_active.is_set() or capture_time < self._tts_ended_at:
-                if config.DEBUG:
-                    reason = "TTS active" if self._tts_active.is_set() else \
-                             f"captured {self._tts_ended_at - capture_time:.3f}s before TTS ended"
-                    console.print(
-                        f"[dim][Bridge] self-transcript discarded ({reason}): {transcript!r}[/dim]"
-                    )
-                continue
-            self._stt.feed(transcript)
+        async for transcript in self._bridge.utterances():
+            if transcript:
+                self._stt.feed(transcript)
 
     async def _pump_chat_queue(self):
+        """
+        Drain POST /api/chat messages and process them directly via _handle_text().
+        Typed messages bypass STT entirely — no waiting for audio.
+        Also handles control signals from POST /api/listen/start|stop.
+        """
         try:
             from api.server import get_chat_queue
             q = get_chat_queue()
@@ -200,14 +159,132 @@ class Orchestrator:
 
         while True:
             try:
-                msg  = await asyncio.wait_for(q.get(), timeout=1.0)
+                msg = await asyncio.wait_for(q.get(), timeout=1.0)
+
+                # ── Control signals from voice button ──────────────────────
+                if msg.get("control"):
+                    if msg["text"] == "__listen_start__":
+                        asyncio.create_task(
+                            self._listen_once(), name="listen-once"
+                        )
+                    # __listen_stop__ is handled inside _listen_once via lock
+                    continue
+
+                # ── Typed message — process directly, bypass STT ───────────
                 text = msg.get("text", "").strip()
-                if text and self._stt is not None:
-                    self._stt.feed(text)
+                if text:
+                    asyncio.create_task(
+                        self._handle_text(text), name="handle-text"
+                    )
+
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
+
+    # ── Handle typed message ──────────────────────────────────────────────────
+
+    async def _handle_text(self, user_input: str):
+        """
+        Process a typed message directly — no STT needed.
+        Runs a full turn: think → act → speak.
+        Uses the same lock as _listen_once to prevent concurrent processing.
+        """
+        if self._listen_lock.locked():
+            try:
+                from api.server import publish
+                publish({"type": "system", "text": "Agent is busy, please wait…"})
+            except ImportError:
+                pass
+            return
+
+        try:
+            from api.server import publish
+        except ImportError:
+            def publish(_): pass
+
+        async with self._listen_lock:
+            console.print(f"\n[bold cyan]You:[/bold cyan] {user_input}")
+            publish({"type": "transcript", "role": "user", "text": user_input})
+
+            publish({"type": "status", "state": "thinking"})
+            plan = await self._think(user_input, self.memory.summary_context(5))
+
+            if plan.confidence < config.MIN_CONFIDENCE:
+                clarify = "I'm not quite sure what you mean. Could you give me a bit more detail?"
+                console.print(f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {clarify}")
+                publish({"type": "transcript", "role": "assistant", "text": clarify})
+                await self._speak(clarify)
+                publish({"type": "status", "state": "idle"})
+                return
+
+            publish({"type": "status", "state": "acting",
+                     "actions": [a.type.value for a in plan.actions]})
+            agent_reply = await self._execute(plan, user_input)
+
+            if agent_reply:
+                console.print(f"\n[bold magenta]{config.AGENT_NAME}:[/bold magenta] {agent_reply}\n")
+                publish({"type": "transcript", "role": "assistant", "text": agent_reply})
+                publish({"type": "status", "state": "speaking"})
+                await self._speak(agent_reply)
+
+            self.context.add("user",      user_input)
+            self.context.add("assistant", agent_reply or "")
+            self.memory.save(user=user_input, agent=agent_reply or "")
+            publish({"type": "status", "state": "idle"})
+
+    # ── Voice button: single-turn conversation ────────────────────────────────
+
+    async def _listen_once(self):
+        """
+        Called when the UI voice button is pressed.
+        Runs one full turn: listen → think → act → speak.
+        Uses a lock so only one capture runs at a time.
+        """
+        if self._listen_lock.locked():
+            return
+
+        try:
+            from api.server import publish
+        except ImportError:
+            def publish(_): pass
+
+        async with self._listen_lock:
+            publish({"type": "status", "state": "listening"})
+            user_input = await self._listen()
+
+            if not user_input:
+                publish({"type": "status", "state": "idle"})
+                return
+
+            console.print(f"\n[bold cyan]You:[/bold cyan] {user_input}")
+            publish({"type": "transcript", "role": "user", "text": user_input})
+
+            publish({"type": "status", "state": "thinking"})
+            plan = await self._think(user_input, self.memory.summary_context(5))
+
+            if plan.confidence < config.MIN_CONFIDENCE:
+                clarify = "I'm not quite sure what you mean. Could you give me a bit more detail?"
+                console.print(f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {clarify}")
+                publish({"type": "transcript", "role": "assistant", "text": clarify})
+                await self._speak(clarify)
+                publish({"type": "status", "state": "idle"})
+                return
+
+            publish({"type": "status", "state": "acting",
+                     "actions": [a.type.value for a in plan.actions]})
+            agent_reply = await self._execute(plan, user_input)
+
+            if agent_reply:
+                console.print(f"\n[bold magenta]{config.AGENT_NAME}:[/bold magenta] {agent_reply}\n")
+                publish({"type": "transcript", "role": "assistant", "text": agent_reply})
+                publish({"type": "status", "state": "speaking"})
+                await self._speak(agent_reply)
+
+            self.context.add("user",      user_input)
+            self.context.add("assistant", agent_reply or "")
+            self.memory.save(user=user_input, agent=agent_reply or "")
+            publish({"type": "status", "state": "idle"})
 
     # ── Main conversation loop ────────────────────────────────────────────────
 
@@ -225,9 +302,7 @@ class Orchestrator:
 
             if user_input.lower().strip() in ("exit", "quit", "bye", "goodbye", "stop"):
                 farewell = "Goodbye! It was great talking with you."
-                console.print(
-                    f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {farewell}"
-                )
+                console.print(f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {farewell}")
                 publish({"type": "transcript", "role": "assistant", "text": farewell})
                 await self._speak(farewell)
                 break
@@ -240,30 +315,23 @@ class Orchestrator:
 
             if plan.confidence < config.MIN_CONFIDENCE:
                 clarify = "I'm not quite sure what you mean. Could you give me a bit more detail?"
-                console.print(
-                    f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {clarify}"
-                )
+                console.print(f"[bold magenta]{config.AGENT_NAME}:[/bold magenta] {clarify}")
                 publish({"type": "transcript", "role": "assistant", "text": clarify})
                 await self._speak(clarify)
                 publish({"type": "status", "state": "idle"})
                 continue
 
-            publish({
-                "type":    "status",
-                "state":   "acting",
-                "actions": [a.type.value for a in plan.actions],
-            })
+            publish({"type": "status", "state": "acting",
+                     "actions": [a.type.value for a in plan.actions]})
             agent_reply = await self._execute(plan, user_input)
 
             if agent_reply:
-                console.print(
-                    f"\n[bold magenta]{config.AGENT_NAME}:[/bold magenta] {agent_reply}\n"
-                )
+                console.print(f"\n[bold magenta]{config.AGENT_NAME}:[/bold magenta] {agent_reply}\n")
                 publish({"type": "transcript", "role": "assistant", "text": agent_reply})
                 publish({"type": "status", "state": "speaking"})
                 await self._speak(agent_reply)
 
-            self.context.add("user", user_input)
+            self.context.add("user",      user_input)
             self.context.add("assistant", agent_reply or "")
             self.memory.save(user=user_input, agent=agent_reply or "")
             publish({"type": "status", "state": "idle"})
@@ -272,31 +340,21 @@ class Orchestrator:
 
     async def _think(self, user_input: str, memory_ctx: str) -> Plan:
         result: list[Plan] = []
-
         async def _do():
-            result.append(
-                await self.planner.plan(
-                    user_input     = user_input,
-                    context        = self.context.messages(),
-                    memory_context = memory_ctx,
-                )
-            )
-
-        with Live(
-            Spinner("dots3", text=Text("  Samantha is thinking…", style="bold magenta")),
-            refresh_per_second=10,
-            transient=True,
-            console=console,
-        ):
+            result.append(await self.planner.plan(
+                user_input=user_input,
+                context=self.context.messages(),
+                memory_context=memory_ctx,
+            ))
+        with Live(Spinner("dots3", text=Text("  Samantha is thinking…", style="bold magenta")),
+                  refresh_per_second=10, transient=True, console=console):
             await _do()
         return result[0]
 
     async def _execute(self, plan: Plan, user_input: str) -> str:
         results = []
         for action in plan.actions:
-            console.print(
-                f"  [yellow]→ [{action.type.value}][/yellow] {action.description}"
-            )
+            console.print(f"  [yellow]→ [{action.type.value}][/yellow] {action.description}")
             for attempt in range(1, config.MAX_ACTION_RETRIES + 1):
                 try:
                     result = await self._run_action(action, user_input)
@@ -315,31 +373,21 @@ class Orchestrator:
     async def _run_action(self, action: Action, user_input: str):
         p = action.params
         match action.type:
-            # ── Conversation ─────────────────────────────────────────────────
-            case ActionType.CONVERSE:
-                return p.get("response", "")
+            case ActionType.CONVERSE:     return p.get("response", "")
             case ActionType.RECALL:
                 turns = self.memory.recent(5)
-                if not turns:
-                    return "No stored history yet."
+                if not turns: return "No stored history yet."
                 return "Here's what I remember:\n" + "\n".join(
                     f"• {t['ts'][:16]}  You: {t['user'][:70]}  →  Me: {t['agent'][:70]}"
-                    for t in turns
-                )
-            # ── Knowledge ────────────────────────────────────────────────────
+                    for t in turns)
             case ActionType.WIKIPEDIA:
-                return await asyncio.to_thread(
-                    self._wiki.search, p.get("query", user_input)
-                )
-            # ── Browser ──────────────────────────────────────────────────────
+                return await asyncio.to_thread(self._wiki.search, p.get("query", user_input))
             case ActionType.BROWSE:
-                if not p.get("url"):
-                    return "No URL provided."
+                if not p.get("url"): return "No URL provided."
                 await self._ensure_browser()
                 return await self._browser.navigate(p["url"])
             case ActionType.SMART_BROWSE:
-                if not p.get("site"):
-                    return "No site name provided."
+                if not p.get("site"): return "No site name provided."
                 await self._ensure_browser()
                 return await self._browser.smart_navigate(p["site"])
             case ActionType.SEARCH_WEB:
@@ -354,90 +402,31 @@ class Orchestrator:
             case ActionType.YOUTUBE_PLAY:
                 await self._ensure_browser()
                 return await self._browser.youtube_play(p.get("query", user_input))
-            # ── OS control ───────────────────────────────────────────────────
             case ActionType.OPEN_APP:
-                if not p.get("app"):
-                    return "No app specified."
+                if not p.get("app"): return "No app specified."
                 return self._os.open_app(p["app"])
             case ActionType.HOTKEY:
-                if not p.get("keys"):
-                    return "No hotkey specified."
+                if not p.get("keys"): return "No hotkey specified."
                 return self._os.hotkey(p["keys"])
             case ActionType.SCREENSHOT:
                 return self._os.screenshot()
             case ActionType.TYPE_TEXT:
-                if not p.get("text"):
-                    return "No text to type."
+                if not p.get("text"): return "No text to type."
                 return self._os.type_text(p["text"])
-            # ── Screen vision ─────────────────────────────────────────────────
-            case ActionType.READ_SCREEN:
-                sc = self._ensure_screen()
-                with Live(
-                    Spinner("dots2", text=Text(
-                        "  Analysing screen…", style="bold cyan"
-                    )),
-                    refresh_per_second=10,
-                    transient=True,
-                    console=console,
-                ):
-                    result = await asyncio.to_thread(sc.analyze_to_str)
-                return result
-
-            case ActionType.FIND_ELEMENT:
-                label = p.get("label", "").strip()
-                if not label:
-                    return "No element label specified."
-                sc = self._ensure_screen()
-                with Live(
-                    Spinner("dots2", text=Text(
-                        f'  Searching for "{label}"…', style="bold cyan"
-                    )),
-                    refresh_per_second=10,
-                    transient=True,
-                    console=console,
-                ):
-                    result = await asyncio.to_thread(sc.find_element, label)
-                return result
-
-            case ActionType.CLICK_ELEMENT:
-                label = p.get("label", "").strip()
-                if not label:
-                    return "No element label specified."
-                sc = self._ensure_screen()
-                with Live(
-                    Spinner("dots2", text=Text(
-                        f'  Clicking "{label}"…', style="bold cyan"
-                    )),
-                    refresh_per_second=10,
-                    transient=True,
-                    console=console,
-                ):
-                    result = await asyncio.to_thread(sc.click_element, label)
-                return result
-            # ── Email ─────────────────────────────────────────────────────────
             case ActionType.SEND_EMAIL:
                 await self._ensure_browser()
                 return await self._gmail.send(
-                    to      = p.get("to", ""),
-                    subject = p.get("subject", "(no subject)"),
-                    body    = p.get("body", ""),
+                    to=p.get("to", ""),
+                    subject=p.get("subject", "(no subject)"),
+                    body=p.get("body", ""),
                 )
-            # ── Voice ─────────────────────────────────────────────────────────
             case ActionType.SWITCH_VOICE:
-                if not p.get("voice"):
-                    return "No voice name provided."
+                if not p.get("voice"): return "No voice name provided."
                 return await asyncio.to_thread(self._tts.switch_voice, p["voice"])
             case ActionType.LIST_VOICES:
                 return self._tts.list_voices()
             case _:
                 return f"Unknown action: {action.type}"
-
-    def _ensure_screen(self):
-        """Lazy-init ScreenCapture — models are loaded inside the first call."""
-        if self._screen is None:
-            from tools.screen import ScreenCapture
-            self._screen = ScreenCapture()
-        return self._screen
 
     async def _ensure_browser(self):
         if not self._browser.is_open:
@@ -447,10 +436,9 @@ class Orchestrator:
         try:
             if self._stt.mode == "text":
                 console.print("[bold green]▶[/bold green] ", end="")
-            return (
-                await asyncio.get_event_loop().run_in_executor(None, self._stt.listen)
-                or ""
-            ).strip()
+            return (await asyncio.get_event_loop().run_in_executor(
+                None, self._stt.listen
+            ) or "").strip()
         except Exception as exc:
             if config.DEBUG:
                 console.print(f"[red][STT error][/red] {exc}")
@@ -459,17 +447,8 @@ class Orchestrator:
     async def _speak(self, text: str):
         if not text:
             return
-        # Signal TTS start BEFORE entering the thread so _pump_bridge sees the
-        # flag immediately — no window where audio can slip through unguarded.
-        self._tts_active.set()
         try:
             await asyncio.to_thread(self._tts.speak, text)
         except Exception as exc:
             if config.DEBUG:
                 console.print(f"[red][TTS error][/red] {exc}")
-        finally:
-            # Clear the active flag first, then stamp the end time so that
-            # _pump_bridge's guard-2 (capture_time < _tts_ended_at) takes over
-            # seamlessly for any in-flight Whisper jobs.
-            self._tts_active.clear()
-            self._tts_ended_at = time.perf_counter()

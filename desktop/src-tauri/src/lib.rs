@@ -98,7 +98,36 @@ fn close_launch(app: AppHandle) {
 /// Re-snaps the overlay to the right edge (e.g. after monitor change).
 #[tauri::command]
 fn reposition_overlay(app: AppHandle) {
-    snap_overlay_right(&app);
+    if let Some(win) = app.get_webview_window("overlay") {
+        eprintln!("[reposition] found overlay window");
+        let overlay_w: u32 = 550;
+        let monitor = win
+            .primary_monitor().ok().flatten()
+            .or_else(|| win.current_monitor().ok().flatten());
+
+        let (new_x, new_y, screen_h) = match monitor {
+            Some(m) => {
+                let sw = m.size().width as i32;
+                let sh = m.size().height as u32;
+                let ox = m.position().x;
+                let oy = m.position().y;
+                let nx = ox + sw - overlay_w as i32;
+                eprintln!("[reposition] monitor {}x{} → x={} y={} w={} h={}", sw, sh, nx, oy, overlay_w, sh);
+                (nx, oy, sh)
+            }
+            None => {
+                eprintln!("[reposition] no monitor found");
+                (1630, 0, 1080_u32)
+            }
+        };
+
+        let _ = win.set_size(PhysicalSize::new(overlay_w, screen_h));
+        let _ = win.set_position(PhysicalPosition::new(new_x, new_y));
+        let _ = win.set_always_on_top(true);
+        eprintln!("[reposition] done");
+    } else {
+        eprintln!("[reposition] overlay window NOT found");
+    }
 }
 
 /// Shows or re-snaps the overlay bar.
@@ -137,31 +166,82 @@ fn open_settings(app: AppHandle) {
 /// Start the Python sidecar backend.
 #[tauri::command]
 async fn start_backend(
-    app:          AppHandle,
-    state:        tauri::State<'_, SharedBackend>,
-    stt_mode:     String,
+    app: AppHandle,
+    state: tauri::State<'_, SharedBackend>,
+    stt_mode: String,
     ollama_model: String,
-    tts_voice:    String,
-    tts_engine:   String,
-    api_port:     u16,
+    tts_voice: String,
+    tts_engine: String,
+    api_port: u16,
 ) -> Result<String, String> {
     let mut s = state.lock().map_err(|e| e.to_string())?;
     if s.child.is_some() {
         return Ok("already running".into());
     }
-    let (_, child) = app
-        .shell()
-        .sidecar("samantha-backend")
-        .map_err(|e| format!("sidecar not found: {e}"))?
-        .args(["--daemon"])
-        .env("STT_MODE",       &stt_mode)
-        .env("OLLAMA_MODEL",   &ollama_model)
-        .env("TTS_EDGE_VOICE", &tts_voice)
-        .env("TTS_ENGINE",     &tts_engine)
-        .env("API_PORT",       api_port.to_string())
-        .env("API_ENABLED",    "true")
-        .spawn()
-        .map_err(|e| format!("spawn failed: {e}"))?;
+
+    // Find agent/ dir by walking up from the exe until we find main.py
+    let agent_dir = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        .ancestors()
+        .skip(1)
+        .find(|p| p.join("agent").join("main.py").exists())
+        .map(|p| p.join("agent"))
+        .ok_or_else(|| {
+            // Log all ancestors for debugging
+            let exe = std::env::current_exe().unwrap_or_default();
+            let ancestors: Vec<String> = exe.ancestors()
+                .map(|p| p.display().to_string())
+                .collect();
+            format!("Cannot find agent/main.py. Searched: {}", ancestors.join(", "))
+        })?;
+
+   // Strip the \\?\ prefix that canonicalize() adds on Windows
+let agent_dir_str = agent_dir.display().to_string();
+let agent_dir_clean = agent_dir_str.trim_start_matches(r"\\?\");
+let agent_dir_final = std::path::Path::new(agent_dir_clean);
+
+eprintln!("[start_backend] clean agent_dir = {}", agent_dir_final.display());
+
+let python = if cfg!(target_os = "windows") {
+    "python.exe"
+} else {
+    "python3"
+};
+
+let (rx, child) = app
+    .shell()
+    .command("C:\\Users\\akm49\\AppData\\Local\\Programs\\Python\\Python310\\python.exe")
+    .args(["main.py", "--daemon"])
+    .current_dir(agent_dir_final)
+    .env("STT_MODE",          &stt_mode)
+    .env("OLLAMA_MODEL",      &ollama_model)
+    .env("TTS_EDGE_VOICE",    &tts_voice)
+    .env("TTS_ENGINE",        &tts_engine)
+    .env("API_PORT",          api_port.to_string())
+    .env("API_ENABLED",       "true")
+    .env("PYTHONIOENCODING",  "utf-8")   // ← fix unicode crash
+    .env("PYTHONUTF8",        "1")       // ← force UTF-8 mode
+    .env("PYTHONLEGACYWINDOWSSTDIO", "0")
+    .spawn()
+    .map_err(|e| format!("spawn failed: {e}"))?;
+
+// Log Python output to terminal
+tauri::async_runtime::spawn(async move {
+    use tauri_plugin_shell::process::CommandEvent;
+    let mut rx = rx;
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => eprintln!("[python] {}", String::from_utf8_lossy(&line)),
+            CommandEvent::Stderr(line) => eprintln!("[python ERR] {}", String::from_utf8_lossy(&line)),
+            CommandEvent::Error(e)     => eprintln!("[python error] {e}"),
+            CommandEvent::Terminated(s)=> { eprintln!("[python exit] {:?}", s); break; }
+            _ => {}
+        }
+    }
+});
+
     s.child = Some(child);
     let _ = app.emit("backend-started", ());
     Ok("started".into())
