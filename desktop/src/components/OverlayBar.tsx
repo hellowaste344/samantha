@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+<<<<<<< HEAD
 import { invoke } from "@tauri-apps/api/core";
+=======
+import { invoke } from "@tauri-apps/api/core";  // OverlayBar.tsx, App.tsx, etc.
+import { getCurrentWindow } from "@tauri-apps/api/window";
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
 import { listen } from "@tauri-apps/api/event";
 import {
   Settings, Minus, ChevronRight,
@@ -11,7 +16,10 @@ import { useAgent } from "@/hooks/useAgent";
 import clsx from "clsx";
 import type { AgentState } from "@/types";
 import { useWebSocket } from "@/hooks/useWebSocket";
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
 type Tab = "chat" | "settings";
 
 const STATE_DOT: Record<AgentState, string> = {
@@ -35,21 +43,35 @@ const STATE_LABEL: Record<AgentState, string> = {
 };
 
 export function OverlayBar() {
+<<<<<<< HEAD
   const { agentState, messages, connected } = useAgentStore();
   const { settings, updateSettings } = useSettingsStore();
   const { startBackend, stopBackend, backendRunning, checkBackendHealth } = useAgent();
   useWebSocket();
 
+=======
+  const { agentState, messages } = useAgentStore();
+  const { settings, updateSettings } = useSettingsStore();
+  const { startBackend, stopBackend, backendRunning, checkBackendHealth } = useAgent();
+  useWebSocket();
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
   const [tab, setTab] = useState<Tab>("chat");
   const [folded, setFolded] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+<<<<<<< HEAD
   const [voiceLoading, setVoiceLoading] = useState(false);
+=======
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
   const bottomRef = useRef<HTMLDivElement>(null);
   const idleTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const isActive = ["listening", "speaking", "thinking", "acting"].includes(agentState);
+<<<<<<< HEAD
   const isListening = agentState === "listening";
+=======
+  const connected = useAgentStore(s => s.connected);
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
   const dot = STATE_DOT[agentState];
 
   // ── Backend events ────────────────────────────────────────────────────────
@@ -59,12 +81,19 @@ export function OverlayBar() {
     return () => { u1.then(f => f()); u2.then(f => f()); };
   }, []);
 
+<<<<<<< HEAD
   // ── Resize overlay when folded ────────────────────────────────────────────
+=======
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
   useEffect(() => {
     invoke("set_overlay_width", { width: folded ? 50 : 550 }).catch(() => { });
   }, [folded]);
 
+<<<<<<< HEAD
   // ── Health check on mount ─────────────────────────────────────────────────
+=======
+  // Health check on mount
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
   useEffect(() => { checkBackendHealth(); }, []); // eslint-disable-line
 
   // ── Auto-scroll ───────────────────────────────────────────────────────────
@@ -107,6 +136,7 @@ export function OverlayBar() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendText(); }
   };
 
+<<<<<<< HEAD
   // ── Voice button handler ──────────────────────────────────────────────────
   const handleVoice = useCallback(async () => {
     if (voiceLoading || (isActive && !isListening)) return;
@@ -126,6 +156,9 @@ export function OverlayBar() {
     }
     setVoiceLoading(false);
   }, [voiceLoading, isActive, isListening, settings.apiPort]);
+=======
+  const reposition = () => invoke("reposition_overlay").catch(() => { });
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
 
   const reposition = () => invoke("reposition_overlay").catch(() => { });
 
@@ -168,7 +201,15 @@ export function OverlayBar() {
             <button className="ob-ctrl" onClick={() => setFolded(true)} title="Collapse">
               <Minus size={9} />
             </button>
+<<<<<<< HEAD
             <button className="ob-ctrl" onClick={() => setFolded(true)} title="Hide">
+=======
+            <button
+              className="ob-ctrl"
+              onClick={() => setFolded(true)}
+              title="Hide"
+            >
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
               <ChevronRight size={9} />
             </button>
           </div>
@@ -228,7 +269,13 @@ export function OverlayBar() {
             <div className="ob-messages">
               {recent.length === 0
                 ? <p className="ob-empty">
+<<<<<<< HEAD
                   {backendRunning ? "Say something or type below…" : "Start the agent to begin"}
+=======
+                  {backendRunning
+                    ? "Say something or type below…"
+                    : "Start the agent to begin"}
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
                 </p>
                 : recent.map(m => (
                   <div key={m.id} className={clsx(
@@ -279,18 +326,30 @@ export function OverlayBar() {
                 onChange={e => setText(e.target.value)}
                 onKeyDown={onKey}
                 placeholder={
+<<<<<<< HEAD
                   !backendRunning ? "Start agent first…" :
                     isActive ? "Busy…" :
                       "Message…"
                 }
                 disabled={isActive || sending || !backendRunning}
+=======
+                  !backendRunning ? "Start agent first…"
+                    : isActive ? "Busy…"
+                      : "Message…"
+                }
+                disabled={isActive || sending}
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
               />
 
               {/* Send button */}
               <button
                 className="ob-send"
                 onClick={sendText}
+<<<<<<< HEAD
                 disabled={!text.trim() || isActive || sending || !backendRunning}
+=======
+                disabled={!text.trim() || isActive || sending}
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
                 aria-label="Send"
               >
                 <Send size={11} />

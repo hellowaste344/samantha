@@ -6,7 +6,63 @@ export function LaunchPopup() {
   const [phase, setPhase] = useState<"idle" | "animating" | "done">("idle");
   const [showActions, setShowActions] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+<<<<<<< HEAD
   const canvasRef = useRef<HTMLCanvasElement>(null);
+=======
+  const [pulse, setPulse] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    const W = canvas.width, H = canvas.height, CY = H / 2;
+    const NODES = 28, SPACING =9, AMP = 13, SPEED = 0.015;
+    let t = 0, raf: number;
+
+    const drawStrand = (points: any[], cf: string, cb: string) => {
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i], p1 = points[i + 1];
+        const z = (p0.z + p1.z) / 2;
+        const t01 = (z + 1) / 2;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.strokeStyle = `rgba(${cf},${0.2 + 0.8 * t01})`;
+        ctx.lineWidth = 1.2 + 2.8 * t01;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+    };
+
+    const frame = () => {
+      ctx.clearRect(0, 0, W, H);
+      const pA = [], pB = [];
+      for (let i = 0; i < NODES; i++) {
+        const x = i * SPACING;
+        const a = (i / (NODES - 1)) * Math.PI * 4 - t;
+        pA.push({ x, y: CY + Math.sin(a) * AMP, z: Math.cos(a) });
+        pB.push({ x, y: CY + Math.sin(a + Math.PI) * AMP, z: Math.cos(a + Math.PI) });
+      }
+      
+      // strands
+      const azA = pA.reduce((s, p) => s + p.z, 0) / NODES;
+      const azB = pB.reduce((s, p) => s + p.z, 0) / NODES;
+      if (azA < azB) { drawStrand(pA, '59,130,246', '59,130,246'); drawStrand(pB, '96,165,250', '96,165,250'); }
+      else { drawStrand(pB, '96,165,250', '96,165,250'); drawStrand(pA, '59,130,246', '59,130,246'); }
+     
+      t += SPEED;
+      raf = requestAnimationFrame(frame);
+    };
+    frame();
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // In JSX:
+  <div className="lp-wave-ring" aria-hidden>
+    <canvas ref={canvasRef} width={100} height={100} style={{display:'block', borderRadius:'50%'}}/>
+  </div>
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
 
   // Fix 1: canvas was rendered twice (once in a dead JSX expression inside useEffect).
   // Now it's only in JSX. The animation logic is unchanged.
@@ -182,9 +238,15 @@ export function LaunchPopup() {
 
         <p className="lp-greeting">Hi! I'm Samantha</p>
 
+<<<<<<< HEAD
         {/* canvas only here, removed duplicate dead render from inside useEffect */}
         <div className="lp-wave-ring" aria-hidden>
           <canvas ref={canvasRef} width={150} height={60} style={{ display: "block" }} />
+=======
+        {/* Waveform ring */}
+        <div className="lp-wave-ring" aria-hidden>
+          <canvas ref={canvasRef} width={150} height={60} style={{ display: 'block' }} />
+>>>>>>> 8b37e69bd68cde7857316aa08a0ca46ea483029f
         </div>
 
         {/* Status hint */}
