@@ -1,5 +1,9 @@
 # Samantha — ZenonAI
-
+```
+!Sorry, the Project Samantha has been shelved due to a lack of available maintainers.
+But I hope one day someone will achieve what we have started with great enthusiasm
+and provide everyone accessible personal AI agent. 
+```
 ```
 Mic ──► [Rust: cpal + WebRTC VAD]
                  │  unix socket
@@ -64,3 +68,8 @@ STT_MODE=rust_bridge        # rust_bridge | voice | text
 TTS_EDGE_VOICE=aria
 HF_TOKEN=hf_your_token_here
 ```
+
+"""
+~SAMANTHA
+samantha is an open source voice interactive AI agent runs on your machine, runs offline built on top of LLM to simplify human interactions with computers and help agents gain more control on your desktop for instance; environment perception via webcam, app interaction, or browser navigation.  Sounds lunatic! yes but in fact it is possible!
+"""
