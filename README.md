@@ -1,8 +1,5 @@
 # Samantha — ZenonAI
-```
-The Project Samantha has been shelved due to a lack of available maintainers.
-But I hope one day someone will achieve what we have started with great enthusiasm.
-```
+
 ```
 Mic ──► [Rust: cpal + WebRTC VAD]
                  │  unix socket
