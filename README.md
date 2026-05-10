@@ -66,4 +66,4 @@ HF_TOKEN=hf_your_token_here
 ```
 
 ~SAMANTHA
-samantha is an open source voice interactive AI agent runs on your machine, runs offline built on top of LLM to simplify human interactions with computers and help agents gain more control on your desktop for instance; environment perception via webcam, app interaction, or browser navigation.  Sounds lunatic! yes but in fact it is possible!
+samantha is an open source voice interactive AI agent lives on your machine, runs offline built on top of LLM to simplify human interactions with computers and help agents gain more control on your desktop for instance; environment perception via webcam, app interaction, or browser navigation.  Sounds lunatic! yes but in fact it is possible!
